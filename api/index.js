@@ -3,27 +3,47 @@
 /**
  * Vercel serverless entry point.
  *
- * Vercel invokes this module per HTTP request – there is no persistent
- * process.  Because of that:
- *   • Telegram uses webhook mode (Telegram POSTs to /webhooks/telegram)
- *     instead of long-polling.
- *   • Scheduled jobs are triggered by Vercel Cron calling /cron/* endpoints
- *     instead of node-cron running in-process.
+ * Initialization is lazy (deferred to the first request) so that a bad
+ * environment variable or a bot-setup failure does not prevent Vercel from
+ * loading the module – which would produce the opaque
+ * "FUNCTION_INVOCATION_FAILED" 500 with no useful message.
  *
- * For local development, use `npm run dev` (src/index.js) which starts the
- * traditional long-polling bot + node-cron scheduler.
+ * On the first request:
+ *   1. Config is validated; if a required env var is missing the handler
+ *      returns 500 with the exact error message so it is visible in Vercel
+ *      function logs.
+ *   2. The Telegram bot is created in webhook mode (no long-polling thread).
+ *   3. The Express app is built and cached for all subsequent requests.
+ *
+ * Telegram uses webhook mode (POST /webhooks/telegram) instead of polling.
+ * Cron jobs are triggered by Vercel Cron calling GET /cron/* endpoints.
+ *
+ * For local development use `npm run dev` (src/index.js) – long-polling + cron.
  */
 
-const { validate } = require('../src/config');
-const { createBot } = require('../src/telegram/bot');
-const { createWebhookApp } = require('../src/webhook/server');
+let app = null;
 
-// Validate required env vars on every cold start so misconfiguration
-// surfaces immediately rather than failing mid-request.
-validate();
+function init() {
+  if (app) return; // already initialised on a previous invocation
 
-// Initialise the bot in webhook mode (no long-polling background thread).
-createBot({ webhookMode: true });
+  const { validate } = require('../src/config');
+  validate(); // throws with a descriptive message if env vars are missing
 
-// Export the Express app – Vercel treats it as an HTTP handler.
-module.exports = createWebhookApp();
+  const { createBot } = require('../src/telegram/bot');
+  createBot({ webhookMode: true });
+
+  const { createWebhookApp } = require('../src/webhook/server');
+  app = createWebhookApp(); // only assigned if everything above succeeded
+}
+
+module.exports = (req, res) => {
+  try {
+    init();
+  } catch (err) {
+    // Log to Vercel's function log and return a clear error to the caller.
+    console.error('[unified-landlord-center] startup error:', err.message);
+    return res.status(500).json({ error: 'Server configuration error', detail: err.message });
+  }
+
+  app(req, res);
+};
