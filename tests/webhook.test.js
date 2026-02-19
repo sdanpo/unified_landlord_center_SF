@@ -60,7 +60,6 @@ describe('POST /webhooks/doorloop', () => {
     expect(res.status).toBe(200);
     expect(res.body.received).toBe(true);
     expect(webhookHandlers.handle).toHaveBeenCalledTimes(1);
-    expect(webhookHandlers.handle.mock.calls[0][1]).toBe('doorloop');
   });
 
   it('rejects a request with an invalid signature', async () => {
@@ -101,36 +100,6 @@ describe('POST /webhooks/doorloop', () => {
   });
 });
 
-// ─── Buildium webhook ─────────────────────────────────────────────────────────
-
-describe('POST /webhooks/buildium', () => {
-  const secret = 'test-webhook-secret';
-
-  function makeSignature(body) {
-    return crypto.createHmac('sha256', secret).update(body).digest('hex');
-  }
-
-  it('normalizes Buildium PascalCase event types to snake_case', async () => {
-    const payload = JSON.stringify({
-      EventType: 'MaintenanceRequest.Created',
-      Id: 'evt-b001',
-      Data: { unitId: 'U1', description: 'Leaking faucet' },
-    });
-    const sig = makeSignature(payload);
-
-    await request(app)
-      .post('/webhooks/buildium')
-      .set('Content-Type', 'application/json')
-      .set('x-pms-signature', sig)
-      .send(payload);
-
-    expect(webhookHandlers.handle).toHaveBeenCalledTimes(1);
-    const normalizedEvent = webhookHandlers.handle.mock.calls[0][0];
-    expect(normalizedEvent.type).toBe('workorder.created');
-    expect(normalizedEvent.id).toBe('evt-b001');
-  });
-});
-
 // ─── Webhook handlers unit tests ──────────────────────────────────────────────
 
 describe('webhook/handlers (routing)', () => {
@@ -149,7 +118,7 @@ describe('webhook/handlers (routing)', () => {
 
   it('handles unknown event types without throwing', async () => {
     await expect(
-      realHandlers.handle({ type: 'unknown.event', data: {} }, 'doorloop')
+      realHandlers.handle({ type: 'unknown.event', data: {} })
     ).resolves.toBeUndefined();
   });
 });

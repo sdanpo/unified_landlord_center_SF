@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Tests for the PMS API clients (DoorLoop and Buildium).
+ * Tests for the DoorLoop API client.
  * All HTTP calls are mocked via Jest – no real network requests.
  */
 
@@ -9,7 +9,6 @@ jest.mock('axios');
 const axios = require('axios');
 
 const DoorLoopClient = require('../src/api/doorloop');
-const BuildiumClient = require('../src/api/buildium');
 
 // ─── Shared mock setup ────────────────────────────────────────────────────────
 
@@ -106,45 +105,10 @@ describe('DoorLoopClient', () => {
   });
 });
 
-// ─── Buildium client ──────────────────────────────────────────────────────────
-
-describe('BuildiumClient', () => {
-  let client;
-
-  beforeEach(() => {
-    client = new BuildiumClient({
-      clientId: 'test-id',
-      clientSecret: 'test-secret',
-      baseUrl: 'https://api.buildium.com/v1',
-    });
-  });
-
-  test('getOutstandingBalances calls GET /leases/outstandingbalances', async () => {
-    mockGet.mockResolvedValue({ data: [] });
-    await client.getOutstandingBalances();
-    expect(mockGet).toHaveBeenCalledWith('/leases/outstandingbalances', { params: {} });
-  });
-
-  test('getWorkOrders calls GET /tasks/maintenancerequests', async () => {
-    mockGet.mockResolvedValue({ data: [] });
-    await client.getWorkOrders();
-    expect(mockGet).toHaveBeenCalledWith('/tasks/maintenancerequests', { params: {} });
-  });
-
-  test('getStaleWorkOrders uses date-only cutoff for Buildium', async () => {
-    mockGet.mockResolvedValue({ data: [] });
-    await client.getStaleWorkOrders(48);
-    const [, opts] = mockGet.mock.calls[0];
-    // Buildium uses date-only (YYYY-MM-DD) not full ISO
-    expect(opts.params.createdDateTimeTo).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-  });
-});
-
 // ─── PMS factory ──────────────────────────────────────────────────────────────
 
 describe('PMS API factory', () => {
-  test('returns a DoorLoopClient when PMS_PROVIDER=doorloop', () => {
-    // config is already loaded with doorloop from setup.js
+  test('exports a DoorLoopClient instance directly', () => {
     const pmsClient = require('../src/api/index');
     expect(pmsClient).toBeInstanceOf(DoorLoopClient);
   });

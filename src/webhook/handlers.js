@@ -154,11 +154,11 @@ const handlers = {
  * Routes a normalized PMS event to the correct handler.
  * Unknown event types are logged and silently ignored.
  */
-async function handle(event, source) {
+async function handle(event) {
   const handler = handlers[event.type];
 
   if (!handler) {
-    logger.debug('No handler registered for event type', { type: event.type, source });
+    logger.debug('No handler registered for event type', { type: event.type });
     return;
   }
 
