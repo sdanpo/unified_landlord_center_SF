@@ -17,6 +17,7 @@ const config = {
 
   telegram: {
     botToken: process.env.TELEGRAM_BOT_TOKEN || '',
+    // Parse the comma-separated list of numeric IDs into a Set for O(1) lookup
     allowedUserIds: new Set(
       (process.env.TELEGRAM_ALLOWED_USER_IDS || '')
         .split(',')
@@ -24,16 +25,6 @@ const config = {
         .filter(Boolean)
         .map(Number)
     ),
-    // true  → webhook mode (Vercel / production – no long-polling)
-    // false → polling mode (local dev default)
-    webhookMode: process.env.TELEGRAM_WEBHOOK_MODE === 'true',
-    // Optional secret token verified on every /webhooks/telegram request
-    webhookSecret: process.env.TELEGRAM_WEBHOOK_SECRET || '',
-  },
-
-  cron: {
-    // Set automatically by Vercel; forwarded as "Authorization: Bearer <secret>"
-    secret: process.env.CRON_SECRET || '',
   },
 
   webhook: {
