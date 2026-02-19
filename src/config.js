@@ -24,6 +24,16 @@ const config = {
         .filter(Boolean)
         .map(Number)
     ),
+    // true  → webhook mode (Vercel / production – no long-polling)
+    // false → polling mode (local dev default)
+    webhookMode: process.env.TELEGRAM_WEBHOOK_MODE === 'true',
+    // Optional secret token verified on every /webhooks/telegram request
+    webhookSecret: process.env.TELEGRAM_WEBHOOK_SECRET || '',
+  },
+
+  cron: {
+    // Set automatically by Vercel; forwarded as "Authorization: Bearer <secret>"
+    secret: process.env.CRON_SECRET || '',
   },
 
   webhook: {

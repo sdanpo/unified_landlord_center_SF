@@ -3,13 +3,17 @@
 /**
  * Telegram bot initialization and lifecycle management.
  *
- * Responsibilities:
- *   1. Create the bot instance (long-polling mode for simplicity;
- *      webhook mode can be enabled by setting TELEGRAM_WEBHOOK=true).
- *   2. Enforce the Telegram User ID whitelist on every inbound message.
- *   3. Route commands and free-form messages to the correct handler.
- *   4. Expose a notifyLandlord() function used by the webhook event
- *      handlers and the automation scheduler to push proactive alerts.
+ * Two operating modes:
+ *
+ *   polling (default / local dev)
+ *     The bot opens a long-poll connection to the Telegram API and receives
+ *     updates directly.  Start with `npm run dev`.
+ *
+ *   webhook  (Vercel / production)
+ *     Telegram sends HTTP POST requests to /webhooks/telegram on our server.
+ *     The bot is created with polling disabled and updates are fed in via
+ *     processUpdate().  Activated by passing { webhookMode: true } to
+ *     createBot() or by setting TELEGRAM_WEBHOOK_MODE=true in the environment.
  */
 
 const TelegramBot = require('node-telegram-bot-api');
@@ -22,12 +26,21 @@ let bot = null;
 
 // ─── Bot factory ─────────────────────────────────────────────────────────────
 
-function createBot() {
+/**
+ * @param {Object} [opts]
+ * @param {boolean} [opts.webhookMode=false] – Skip long-polling; rely on
+ *   processUpdate() being called by the /webhooks/telegram HTTP route instead.
+ */
+function createBot({ webhookMode = config.telegram.webhookMode } = {}) {
   if (bot) return bot;
 
-  bot = new TelegramBot(config.telegram.botToken, { polling: true });
+  bot = new TelegramBot(config.telegram.botToken, { polling: !webhookMode });
 
-  logger.info('Telegram bot started (long-polling)');
+  if (webhookMode) {
+    logger.info('Telegram bot started (webhook mode)');
+  } else {
+    logger.info('Telegram bot started (long-polling)');
+  }
 
   // ── Commands (whitelisted) ─────────────────────────────────────────────────
 
@@ -46,7 +59,6 @@ function createBot() {
   // ── Free-form NLP messages (whitelisted) ───────────────────────────────────
 
   bot.on('message', guard(async (msg) => {
-    // Skip command messages already handled above
     if (msg.text?.startsWith('/')) return;
     await handleMessage(bot, msg);
   }));
@@ -64,20 +76,24 @@ function createBot() {
   return bot;
 }
 
-// ─── Proactive landlord notifications ────────────────────────────────────────
+// ─── Webhook update ingestion ─────────────────────────────────────────────────
 
 /**
- * Push a message to all whitelisted landlord Telegram chats.
+ * Feed a raw Telegram Update object into the bot's event pipeline.
+ * Called by the POST /webhooks/telegram Express route in webhook mode.
  *
- * Used by:
- *   - webhook/handlers.js  – real-time PMS event alerts
- *   - automation/scheduler.js – scheduled proactive alerts
- *
- * @param {string} text – Message text (Markdown supported)
+ * @param {Object} update – The parsed JSON body from Telegram's POST request.
  */
+function processUpdate(update) {
+  if (!bot) throw new Error('Bot not initialised – call createBot() first');
+  bot.processUpdate(update);
+}
+
+// ─── Proactive landlord notifications ────────────────────────────────────────
+
 async function notifyLandlord(text) {
   if (!bot) {
-    logger.warn('notifyLandlord called before bot was initialized');
+    logger.warn('notifyLandlord called before bot was initialised');
     return;
   }
 
@@ -107,4 +123,4 @@ async function stopBot() {
   }
 }
 
-module.exports = { createBot, notifyLandlord, stopBot };
+module.exports = { createBot, processUpdate, notifyLandlord, stopBot };

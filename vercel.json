@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/api/index.js" }
+  ],
+  "crons": [
+    { "path": "/cron/rent-check",        "schedule": "0 8 * * *"  },
+    { "path": "/cron/maintenance-check", "schedule": "0 9 * * *"  },
+    { "path": "/cron/weekly-report",     "schedule": "0 17 * * 5" }
+  ]
+}

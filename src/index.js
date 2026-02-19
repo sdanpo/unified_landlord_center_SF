@@ -41,7 +41,7 @@ async function main() {
   scheduler.start();
 
   logger.info('Unified Landlord Center started successfully', {
-    pmsProvider: config.pms.provider,
+    pmsProvider: 'doorloop',
     reportDelivery: config.reports.delivery,
   });
 
