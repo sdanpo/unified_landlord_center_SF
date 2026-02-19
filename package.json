@@ -1,0 +1,53 @@
+{
+  "name": "unified-landlord-center-sf",
+  "version": "1.0.0",
+  "description": "AI-Augmented Omnichannel Property Management System – Telegram NLP agent for landlords + SMS for tenants",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "test": "jest --coverage --forceExit",
+    "test:watch": "jest --watch",
+    "lint": "eslint 'src/**/*.js' 'tests/**/*.js'"
+  },
+  "keywords": [
+    "property-management",
+    "telegram-bot",
+    "sms",
+    "openai",
+    "doorloop",
+    "buildium",
+    "nlp",
+    "automation"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "axios": "^1.7.2",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "node-cron": "^3.0.3",
+    "node-telegram-bot-api": "^0.66.0",
+    "openai": "^4.52.0",
+    "winston": "^3.13.0"
+  },
+  "devDependencies": {
+    "eslint": "^9.7.0",
+    "jest": "^29.7.0",
+    "nodemon": "^3.1.4",
+    "supertest": "^7.0.0"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "coverageDirectory": "coverage",
+    "collectCoverageFrom": [
+      "src/**/*.js",
+      "!src/index.js"
+    ],
+    "testMatch": [
+      "**/tests/**/*.test.js"
+    ],
+    "setupFiles": [
+      "<rootDir>/tests/setup.js"
+    ]
+  }
+}

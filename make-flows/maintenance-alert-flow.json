@@ -1,0 +1,89 @@
+{
+  "_meta": {
+    "title": "Stale Maintenance Ticket – Proactive Landlord Alert",
+    "description": "Runs daily at 9:00 AM. Queries the PMS for all work orders that have been in 'open' status for more than 48 hours and have no vendor update. Sends a consolidated Telegram alert to the landlord listing every stale ticket.",
+    "version": "1.0.0",
+    "platform": "Make.com (formerly Integromat)",
+    "tier_required": "Pro ($16/month)",
+    "estimated_operations_per_run": 3
+  },
+
+  "scenario": {
+    "name": "Stale Maintenance Ticket – Daily Proactive Alert",
+    "scheduling": {
+      "type": "scheduled",
+      "interval": "daily",
+      "time": "09:00",
+      "timezone": "America/Los_Angeles"
+    },
+
+    "modules": [
+      {
+        "id": 1,
+        "type": "http",
+        "name": "1. Query DoorLoop for Stale Work Orders (> 48 h)",
+        "config": {
+          "method": "GET",
+          "url": "https://api.doorloop.com/v1/workorders",
+          "headers": [
+            { "name": "Authorization", "value": "Bearer {{env.DOORLOOP_API_KEY}}" },
+            { "name": "Accept",        "value": "application/json" }
+          ],
+          "queryParams": [
+            { "name": "status",        "value": "open" },
+            { "name": "createdBefore", "value": "{{formatDate(addHours(now; -48); 'YYYY-MM-DDTHH:mm:ssZ')}}" }
+          ],
+          "parseResponse": true
+        },
+        "next": 2
+      },
+
+      {
+        "id": 2,
+        "type": "router",
+        "name": "2. Check if Any Stale Tickets Exist",
+        "routes": [
+          {
+            "label": "Stale tickets found",
+            "condition": {
+              "field": "{{length(1.data)}}",
+              "operator": "greater-than",
+              "value": "0"
+            },
+            "next": 3
+          },
+          {
+            "label": "No stale tickets – stop",
+            "condition": null,
+            "next": null
+          }
+        ]
+      },
+
+      {
+        "id": 3,
+        "type": "text-aggregator",
+        "name": "3. Build Ticket Summary Text",
+        "config": {
+          "sourceModule": 1,
+          "rowSeparator": "\\n\\n",
+          "text": "• *Ticket #{{item.id}}* – Unit {{item.unit}}\n  Issue: {{item.description}}\n  Open for: {{round(dateDiff(parseDate(item.createdAt; 'ISO'); now; 'hours'))}} hours\n  Vendor: {{ifempty(item.vendorName; 'Not assigned')}}"
+        },
+        "next": 4
+      },
+
+      {
+        "id": 4,
+        "type": "telegram-bot",
+        "name": "4. Send Stale-Ticket Alert to Landlord",
+        "config": {
+          "connection": "Telegram Bot – Landlord Channel",
+          "chatId": "{{env.TELEGRAM_LANDLORD_CHAT_ID}}",
+          "parseMode": "Markdown",
+          "text": "⚠️ *Stale Maintenance Tickets*\n\n{{length(1.data)}} work order(s) have been open for more than 48 hours:\n\n{{3.text}}\n\nPlease follow up with the assigned vendors."
+        },
+        "next": null
+      }
+    ]
+  }
+}

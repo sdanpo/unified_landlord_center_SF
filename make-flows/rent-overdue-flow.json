@@ -1,0 +1,103 @@
+{
+  "_meta": {
+    "title": "Rent Overdue – Tenant SMS + Landlord Telegram Alert",
+    "description": "Triggered the instant DoorLoop emits a 'rent.overdue' webhook. Dispatches an automated SMS reminder to the delinquent tenant and simultaneously pushes a real-time alert to the landlord's Telegram bot.",
+    "version": "1.0.0",
+    "platform": "Make.com (formerly Integromat)",
+    "tier_required": "Pro ($16/month)",
+    "estimated_operations_per_trigger": 4
+  },
+
+  "scenario": {
+    "name": "Rent Overdue – Tenant SMS + Landlord Telegram Alert",
+    "scheduling": {
+      "type": "webhook",
+      "webhookName": "DoorLoop Rent Overdue"
+    },
+
+    "modules": [
+      {
+        "id": 1,
+        "type": "webhook",
+        "name": "1. Receive DoorLoop Webhook",
+        "config": {
+          "webhookName": "DoorLoop Rent Overdue",
+          "dataStructure": {
+            "type": "object",
+            "spec": [
+              { "name": "type",            "type": "text" },
+              { "name": "id",              "type": "text" },
+              { "name": "data",            "type": "collection",
+                "spec": [
+                  { "name": "tenantId",       "type": "text" },
+                  { "name": "tenantName",     "type": "text" },
+                  { "name": "tenantPhone",    "type": "text" },
+                  { "name": "unit",           "type": "text" },
+                  { "name": "propertyAddress","type": "text" },
+                  { "name": "amountDue",      "type": "number" },
+                  { "name": "leaseId",        "type": "text" },
+                  { "name": "daysOverdue",    "type": "number" }
+                ]
+              }
+            ]
+          }
+        },
+        "next": 2
+      },
+
+      {
+        "id": 2,
+        "type": "router",
+        "name": "2. Validate Event Type",
+        "routes": [
+          {
+            "label": "Is rent.overdue",
+            "condition": {
+              "field": "{{1.type}}",
+              "operator": "equal",
+              "value": "rent.overdue"
+            },
+            "next": [3, 4]
+          },
+          {
+            "label": "Other event – ignore",
+            "condition": null,
+            "next": null
+          }
+        ]
+      },
+
+      {
+        "id": 3,
+        "type": "http",
+        "name": "3a. Send Tenant SMS via DoorLoop API",
+        "config": {
+          "method": "POST",
+          "url": "https://api.doorloop.com/v1/communications/sms",
+          "headers": [
+            { "name": "Authorization", "value": "Bearer {{env.DOORLOOP_API_KEY}}" },
+            { "name": "Content-Type",  "value": "application/json" }
+          ],
+          "body": {
+            "tenantId": "{{1.data.tenantId}}",
+            "message": "This is an automated alert from Management. Your rent balance of ${{1.data.amountDue}} for {{1.data.unit}} at {{1.data.propertyAddress}} is currently past due. Please remit payment via your tenant portal at your earliest convenience."
+          }
+        },
+        "next": null
+      },
+
+      {
+        "id": 4,
+        "type": "telegram-bot",
+        "name": "3b. Alert Landlord via Telegram",
+        "config": {
+          "connection": "Telegram Bot – Landlord Channel",
+          "chatId": "{{env.TELEGRAM_LANDLORD_CHAT_ID}}",
+          "parseMode": "Markdown",
+          "text": "🚨 *Rent Overdue Alert*\n\nTenant: {{1.data.tenantName}} (Unit {{1.data.unit}})\nAmount Due: ${{1.data.amountDue}}\nDays Overdue: {{1.data.daysOverdue}}\nProperty: {{1.data.propertyAddress}}\n\nAn automated SMS reminder has been dispatched to the tenant."
+        },
+        "next": null
+      }
+    ]
+  }
+}

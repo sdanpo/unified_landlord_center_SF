@@ -1,0 +1,138 @@
+{
+  "_meta": {
+    "title": "Weekly Portfolio Report – Financial + Operational Summary",
+    "description": "Runs every Friday at 17:00. Queries the PMS for the week's general ledger transactions, outstanding balances, open work orders, and soon-to-expire leases. Compiles and delivers a formatted summary to the landlord via Telegram.",
+    "version": "1.0.0",
+    "platform": "Make.com (formerly Integromat)",
+    "tier_required": "Pro ($16/month)",
+    "estimated_operations_per_run": 8
+  },
+
+  "scenario": {
+    "name": "Weekly Portfolio Report – Friday 17:00",
+    "scheduling": {
+      "type": "scheduled",
+      "interval": "weekly",
+      "dayOfWeek": "Friday",
+      "time": "17:00",
+      "timezone": "America/Los_Angeles"
+    },
+
+    "modules": [
+      {
+        "id": 1,
+        "type": "http",
+        "name": "1a. Fetch General Ledger (this week)",
+        "config": {
+          "method": "GET",
+          "url": "https://api.doorloop.com/v1/accounting/generalledger",
+          "headers": [
+            { "name": "Authorization", "value": "Bearer {{env.DOORLOOP_API_KEY}}" }
+          ],
+          "queryParams": [
+            { "name": "startDate", "value": "{{formatDate(setDay(addDays(now; -6); 1); 'YYYY-MM-DD')}}" },
+            { "name": "endDate",   "value": "{{formatDate(now; 'YYYY-MM-DD')}}" }
+          ],
+          "parseResponse": true
+        },
+        "next": [2, 3, 4]
+      },
+
+      {
+        "id": 2,
+        "type": "http",
+        "name": "1b. Fetch Outstanding Balances",
+        "config": {
+          "method": "GET",
+          "url": "https://api.doorloop.com/v1/rentals/outstandingbalances",
+          "headers": [
+            { "name": "Authorization", "value": "Bearer {{env.DOORLOOP_API_KEY}}" }
+          ],
+          "parseResponse": true
+        },
+        "next": null
+      },
+
+      {
+        "id": 3,
+        "type": "http",
+        "name": "1c. Fetch Open Work Orders",
+        "config": {
+          "method": "GET",
+          "url": "https://api.doorloop.com/v1/workorders",
+          "headers": [
+            { "name": "Authorization", "value": "Bearer {{env.DOORLOOP_API_KEY}}" }
+          ],
+          "queryParams": [
+            { "name": "status", "value": "open" }
+          ],
+          "parseResponse": true
+        },
+        "next": null
+      },
+
+      {
+        "id": 4,
+        "type": "http",
+        "name": "1d. Fetch Active Leases",
+        "config": {
+          "method": "GET",
+          "url": "https://api.doorloop.com/v1/leases",
+          "headers": [
+            { "name": "Authorization", "value": "Bearer {{env.DOORLOOP_API_KEY}}" }
+          ],
+          "queryParams": [
+            { "name": "status", "value": "active" }
+          ],
+          "parseResponse": true
+        },
+        "next": null
+      },
+
+      {
+        "id": 5,
+        "type": "json-aggregator",
+        "name": "2. Aggregate All Data",
+        "config": {
+          "sourceModules": [1, 2, 3, 4],
+          "output": {
+            "ledger":      "{{1.data}}",
+            "outstanding": "{{2.data}}",
+            "workOrders":  "{{3.data}}",
+            "leases":      "{{4.data}}"
+          }
+        },
+        "next": 6
+      },
+
+      {
+        "id": 6,
+        "type": "set-variables",
+        "name": "3. Calculate Metrics",
+        "variables": {
+          "totalIncome":    "{{sum(map(filter(5.ledger; 'type'; 'income'); 'amount'))}}",
+          "totalExpenses":  "{{sum(map(filter(5.ledger; 'type'; 'expense'); 'amount'))}}",
+          "netCashFlow":    "{{6.totalIncome - 6.totalExpenses}}",
+          "overdueCount":   "{{length(filter(5.outstanding; 'amountDue'; '>'; 0))}}",
+          "overdueTotal":   "{{sum(map(filter(5.outstanding; 'amountDue'; '>'; 0); 'amountDue'))}}",
+          "openWOCount":    "{{length(5.workOrders)}}",
+          "expiringLeases": "{{length(filter(5.leases; 'daysUntilExpiry'; '<'; 60))}}"
+        },
+        "next": 7
+      },
+
+      {
+        "id": 7,
+        "type": "telegram-bot",
+        "name": "4. Deliver Report via Telegram",
+        "config": {
+          "connection": "Telegram Bot – Landlord Channel",
+          "chatId": "{{env.TELEGRAM_LANDLORD_CHAT_ID}}",
+          "parseMode": "Markdown",
+          "text": "📊 *Weekly Portfolio Report*\n📅 Week ending {{formatDate(now; 'MMMM D, YYYY')}}\n\n💰 *Financials*\n• Gross Income: ${{formatNumber(6.totalIncome; 2)}}\n• Expenses: ${{formatNumber(6.totalExpenses; 2)}}\n• Net Cash Flow: ${{formatNumber(6.netCashFlow; 2)}}\n\n🚨 *Delinquencies*\n• {{6.overdueCount}} tenant(s) past due\n• Total outstanding: ${{formatNumber(6.overdueTotal; 2)}}\n\n🔧 *Maintenance*\n• {{6.openWOCount}} open work order(s)\n\n📋 *Leases Expiring (60 days)*\n• {{6.expiringLeases}} lease(s) requiring attention\n\n_Report generated automatically by Unified Landlord Center._"
+        },
+        "next": null
+      }
+    ]
+  }
+}
