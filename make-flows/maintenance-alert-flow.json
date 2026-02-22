@@ -1,11 +1,12 @@
 {
   "_meta": {
     "title": "Stale Maintenance Ticket – Proactive Landlord Alert",
-    "description": "Runs daily at 9:00 AM. Queries the PMS for all work orders that have been in 'open' status for more than 48 hours and have no vendor update. Sends a consolidated Telegram alert to the landlord listing every stale ticket.",
-    "version": "1.0.0",
+    "description": "Runs daily at 9:00 AM. Queries ERPNext for all HD Tickets (Maintenance Requests) that have been in Open or Replied status for more than 48 hours. Sends a consolidated Telegram alert to the landlord listing every stale ticket.",
+    "version": "2.0.0",
     "platform": "Make.com (formerly Integromat)",
     "tier_required": "Pro ($16/month)",
-    "estimated_operations_per_run": 3
+    "estimated_operations_per_run": 3,
+    "pms": "ERPNext (PropMS)"
   },
 
   "scenario": {
@@ -21,17 +22,25 @@
       {
         "id": 1,
         "type": "http",
-        "name": "1. Query DoorLoop for Stale Work Orders (> 48 h)",
+        "name": "1. Query ERPNext for Stale HD Tickets (> 48 h)",
         "config": {
           "method": "GET",
-          "url": "https://api.doorloop.com/v1/workorders",
+          "url": "{{env.ERPNEXT_BASE_URL}}/api/resource/HD%20Ticket",
           "headers": [
-            { "name": "Authorization", "value": "Bearer {{env.DOORLOOP_API_KEY}}" },
+            { "name": "Authorization", "value": "token {{env.ERPNEXT_API_KEY}}:{{env.ERPNEXT_API_SECRET}}" },
             { "name": "Accept",        "value": "application/json" }
           ],
           "queryParams": [
-            { "name": "status",        "value": "open" },
-            { "name": "createdBefore", "value": "{{formatDate(addHours(now; -48); 'YYYY-MM-DDTHH:mm:ssZ')}}" }
+            {
+              "name": "filters",
+              "value": "[[\"status\",\"in\",[\"Open\",\"Replied\"]],[\"creation\",\"<\",\"{{formatDate(addHours(now; -48); 'YYYY-MM-DD HH:mm:ss')}}\"]]"
+            },
+            {
+              "name": "fields",
+              "value": "[\"name\",\"subject\",\"status\",\"priority\",\"customer_name\",\"custom_unit\",\"custom_property\",\"creation\"]"
+            },
+            { "name": "limit_page_length", "value": "500" },
+            { "name": "order_by",          "value": "creation asc" }
           ],
           "parseResponse": true
         },
@@ -67,7 +76,7 @@
         "config": {
           "sourceModule": 1,
           "rowSeparator": "\\n\\n",
-          "text": "• *Ticket #{{item.id}}* – Unit {{item.unit}}\n  Issue: {{item.description}}\n  Open for: {{round(dateDiff(parseDate(item.createdAt; 'ISO'); now; 'hours'))}} hours\n  Vendor: {{ifempty(item.vendorName; 'Not assigned')}}"
+          "text": "• *Ticket {{item.name}}* – Unit {{item.custom_unit}}\n  Issue: {{item.subject}}\n  Tenant: {{item.customer_name}}\n  Priority: {{item.priority}}\n  Open for: {{round(dateDiff(parseDate(item.creation; 'YYYY-MM-DD HH:mm:ss'); now; 'hours'))}} hours\n  Status: {{item.status}}"
         },
         "next": 4
       },

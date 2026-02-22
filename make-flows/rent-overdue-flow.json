@@ -1,44 +1,41 @@
 {
   "_meta": {
-    "title": "Rent Overdue – Tenant SMS + Landlord Telegram Alert",
-    "description": "Triggered the instant DoorLoop emits a 'rent.overdue' webhook. Dispatches an automated SMS reminder to the delinquent tenant and simultaneously pushes a real-time alert to the landlord's Telegram bot.",
-    "version": "1.0.0",
+    "title": "Rent Overdue – Tenant SMS (Twilio) + Landlord Telegram Alert",
+    "description": "Triggered the instant ERPNext emits an 'invoice-overdue' webhook (Sales Invoice submitted with outstanding_amount > 0 and due_date in the past). Fetches the tenant's mobile number from ERPNext, dispatches an automated SMS reminder via Twilio, and simultaneously pushes a real-time alert to the landlord's Telegram bot.",
+    "version": "2.0.0",
     "platform": "Make.com (formerly Integromat)",
     "tier_required": "Pro ($16/month)",
-    "estimated_operations_per_trigger": 4
+    "estimated_operations_per_trigger": 5,
+    "pms": "ERPNext (PropMS)",
+    "sms_provider": "Twilio"
   },
 
   "scenario": {
     "name": "Rent Overdue – Tenant SMS + Landlord Telegram Alert",
     "scheduling": {
       "type": "webhook",
-      "webhookName": "DoorLoop Rent Overdue"
+      "webhookName": "ERPNext invoice-overdue"
     },
 
     "modules": [
       {
         "id": 1,
         "type": "webhook",
-        "name": "1. Receive DoorLoop Webhook",
+        "name": "1. Receive ERPNext Sales Invoice Webhook",
         "config": {
-          "webhookName": "DoorLoop Rent Overdue",
+          "webhookName": "ERPNext invoice-overdue",
+          "note": "Register this URL in ERPNext → Integrations → Webhooks. DocType: Sales Invoice, Trigger: on_submit, Condition: doc.outstanding_amount > 0 and doc.due_date < frappe.utils.today()",
           "dataStructure": {
             "type": "object",
             "spec": [
-              { "name": "type",            "type": "text" },
-              { "name": "id",              "type": "text" },
-              { "name": "data",            "type": "collection",
-                "spec": [
-                  { "name": "tenantId",       "type": "text" },
-                  { "name": "tenantName",     "type": "text" },
-                  { "name": "tenantPhone",    "type": "text" },
-                  { "name": "unit",           "type": "text" },
-                  { "name": "propertyAddress","type": "text" },
-                  { "name": "amountDue",      "type": "number" },
-                  { "name": "leaseId",        "type": "text" },
-                  { "name": "daysOverdue",    "type": "number" }
-                ]
-              }
+              { "name": "name",               "type": "text"   },
+              { "name": "customer",           "type": "text"   },
+              { "name": "customer_name",      "type": "text"   },
+              { "name": "outstanding_amount", "type": "number" },
+              { "name": "due_date",           "type": "date"   },
+              { "name": "custom_unit",        "type": "text"   },
+              { "name": "custom_property",    "type": "text"   },
+              { "name": "custom_lease",       "type": "text"   }
             ]
           }
         },
@@ -47,54 +44,75 @@
 
       {
         "id": 2,
+        "type": "http",
+        "name": "2. Fetch Tenant Phone from ERPNext",
+        "config": {
+          "method": "GET",
+          "url": "{{env.ERPNEXT_BASE_URL}}/api/resource/Customer/{{1.customer}}",
+          "headers": [
+            { "name": "Authorization", "value": "token {{env.ERPNEXT_API_KEY}}:{{env.ERPNEXT_API_SECRET}}" },
+            { "name": "Accept",        "value": "application/json" }
+          ],
+          "parseResponse": true
+        },
+        "next": 3
+      },
+
+      {
+        "id": 3,
         "type": "router",
-        "name": "2. Validate Event Type",
+        "name": "3. Has Phone Number?",
         "routes": [
           {
-            "label": "Is rent.overdue",
+            "label": "Phone available – send SMS",
             "condition": {
-              "field": "{{1.type}}",
-              "operator": "equal",
-              "value": "rent.overdue"
+              "field": "{{2.data.mobile_no}}",
+              "operator": "exists"
             },
-            "next": [3, 4]
+            "next": [4, 5]
           },
           {
-            "label": "Other event – ignore",
+            "label": "No phone – alert landlord only",
             "condition": null,
-            "next": null
+            "next": 5
           }
         ]
       },
 
       {
-        "id": 3,
+        "id": 4,
         "type": "http",
-        "name": "3a. Send Tenant SMS via DoorLoop API",
+        "name": "4a. Send Tenant SMS via Twilio",
         "config": {
           "method": "POST",
-          "url": "https://api.doorloop.com/v1/communications/sms",
+          "url": "https://api.twilio.com/2010-04-01/Accounts/{{env.TWILIO_ACCOUNT_SID}}/Messages.json",
+          "auth": {
+            "type": "basic",
+            "username": "{{env.TWILIO_ACCOUNT_SID}}",
+            "password": "{{env.TWILIO_AUTH_TOKEN}}"
+          },
           "headers": [
-            { "name": "Authorization", "value": "Bearer {{env.DOORLOOP_API_KEY}}" },
-            { "name": "Content-Type",  "value": "application/json" }
+            { "name": "Content-Type", "value": "application/x-www-form-urlencoded" }
           ],
+          "bodyType": "url-encoded",
           "body": {
-            "tenantId": "{{1.data.tenantId}}",
-            "message": "This is an automated alert from Management. Your rent balance of ${{1.data.amountDue}} for {{1.data.unit}} at {{1.data.propertyAddress}} is currently past due. Please remit payment via your tenant portal at your earliest convenience."
+            "To":   "{{2.data.mobile_no}}",
+            "From": "{{env.TWILIO_FROM_NUMBER}}",
+            "Body": "This is an automated alert from Management. Your rent balance of ${{1.outstanding_amount}} for {{1.custom_unit}} at {{1.custom_property}} is currently past due. Please remit payment via your tenant portal at your earliest convenience."
           }
         },
         "next": null
       },
 
       {
-        "id": 4,
+        "id": 5,
         "type": "telegram-bot",
-        "name": "3b. Alert Landlord via Telegram",
+        "name": "4b. Alert Landlord via Telegram",
         "config": {
           "connection": "Telegram Bot – Landlord Channel",
           "chatId": "{{env.TELEGRAM_LANDLORD_CHAT_ID}}",
           "parseMode": "Markdown",
-          "text": "🚨 *Rent Overdue Alert*\n\nTenant: {{1.data.tenantName}} (Unit {{1.data.unit}})\nAmount Due: ${{1.data.amountDue}}\nDays Overdue: {{1.data.daysOverdue}}\nProperty: {{1.data.propertyAddress}}\n\nAn automated SMS reminder has been dispatched to the tenant."
+          "text": "🚨 *Rent Overdue Alert*\n\nTenant: {{1.customer_name}} (Unit {{1.custom_unit}})\nAmount Due: ${{1.outstanding_amount}}\nDue Date: {{1.due_date}}\nProperty: {{1.custom_property}}\nInvoice: {{1.name}}\n\n{{if(2.data.mobile_no; 'An automated SMS reminder has been dispatched to the tenant.'; '⚠️ No phone number on file – SMS was not sent.')}}"
         },
         "next": null
       }

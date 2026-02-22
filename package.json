@@ -15,8 +15,10 @@
     "telegram-bot",
     "sms",
     "openai",
-    "doorloop",
-    "buildium",
+    "erpnext",
+    "frappe",
+    "propms",
+    "twilio",
     "nlp",
     "automation"
   ],

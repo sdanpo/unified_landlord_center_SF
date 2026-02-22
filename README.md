@@ -1,9 +1,9 @@
 # Unified Landlord Center SF
 ## AI-Augmented Omnichannel Property Management System
 
-A composable, low-code-ready backend that glues together a property management
-database (DoorLoop or Buildium), a Telegram NLP agent for the landlord, and
-automated SMS alerts for tenants — all for roughly **$225–$250/month** in
+A composable, low-code-ready backend that glues together an open-source property
+management database (ERPNext + PropMS), a Telegram NLP agent for the landlord, and
+automated SMS alerts for tenants via Twilio — all for roughly **$30–$80/month** in
 operational costs.
 
 ---
@@ -22,8 +22,8 @@ operational costs.
 │          └───────────┬──────────────┘                        │
 │                      │                                       │
 │          ┌───────────▼──────────────┐                        │
-│          │  PMS API Client          │   DoorLoop / Buildium  │
-│          │  (REST, OAuth/Token)     │                        │
+│          │  ERPNext REST Client     │   token auth           │
+│          │  (PropMS app installed)  │   /api/resource/*      │
 │          └───────────┬──────────────┘                        │
 │                      │                                       │
 │          ┌───────────▼──────────────────────────────┐        │
@@ -32,7 +32,7 @@ operational costs.
 │          └───────────┬──────────────────────────────┘        │
 │                      │                                       │
 │          ┌───────────▼──────────────┐                        │
-│          │       TENANTS            │   Standard SMS only    │
+│          │       TENANTS            │   SMS via Twilio       │
 │          └──────────────────────────┘                        │
 └──────────────────────────────────────────────────────────────┘
 ```
@@ -42,8 +42,8 @@ operational costs.
 |---|---|---|
 | Landlord → System | Natural language queries | Telegram Bot |
 | System → Landlord | Proactive alerts + query replies | Telegram Bot |
-| System → Tenant | Automated rent / maintenance notices | SMS (PMS native or Twilio) |
-| PMS → System | Real-time event delivery | Webhooks (HTTP POST) |
+| System → Tenant | Automated rent / maintenance notices | SMS (Twilio) |
+| ERPNext → System | Real-time event delivery | Webhooks (HTTP POST) |
 
 ---
 
@@ -51,12 +51,14 @@ operational costs.
 
 | Category | Technology | Est. Monthly Cost |
 |---|---|---|
-| Core PMS | DoorLoop Premium | ~$199 |
+| Core PMS | ERPNext + PropMS (self-hosted VPS) | ~$10–15 |
+| *(alternative)* | Frappe Cloud managed ERPNext | ~$50 |
 | Middleware | Make.com Pro | ~$16 |
-| LLM Inference | OpenAI API (GPT-4o) | ~$5–$10 |
-| Automation / Conversational AI | This codebase (self-hosted) | ~$0 (VPS/free tier) |
-| Telecom | Telegram (free) + PMS SMS credits | ~$0–$10 |
-| **Total** | | **~$220–$235** |
+| LLM Inference | OpenAI API (GPT-4o) | ~$5–10 |
+| Automation / Conversational AI | This codebase (same VPS) | ~$0 |
+| Telecom | Telegram (free) + Twilio SMS | ~$1–5 |
+| **Total (self-hosted)** | | **~$30–50** |
+| **Total (Frappe Cloud)** | | **~$75–85** |
 
 ---
 
@@ -68,12 +70,11 @@ src/
 ├── config.js                 Centralised env-var configuration
 ├── logger.js                 Winston logger
 ├── api/
-│   ├── index.js              PMS client factory (doorloop | buildium)
-│   ├── doorloop.js           DoorLoop REST API client
-│   └── buildium.js           Buildium REST API client
+│   ├── index.js              ERPNext client singleton
+│   └── erpnext.js            ERPNext REST API client (PropMS DocTypes)
 ├── webhook/
-│   ├── server.js             Express webhook receiver (HMAC verified)
-│   └── handlers.js           Event dispatcher → SMS + Telegram
+│   ├── server.js             Express webhook receiver (HMAC verified, 6 ERPNext routes)
+│   └── handlers.js           Event dispatcher → SMS (Twilio) + Telegram
 ├── telegram/
 │   ├── bot.js                Bot lifecycle + notifyLandlord()
 │   ├── handlers.js           /start, /help, /clear, NLP handler
@@ -82,7 +83,7 @@ src/
 │   ├── openai.js             Agentic loop (function-calling)
 │   └── functions.js          OpenAI tool schema definitions
 ├── sms/
-│   └── dispatcher.js         Twilio / PMS-native SMS dispatch
+│   └── dispatcher.js         Twilio SMS dispatch
 └── automation/
     ├── scheduler.js           node-cron jobs
     └── reports.js             Weekly financial report generator
@@ -94,7 +95,7 @@ make-flows/
 
 tests/
 ├── setup.js                  Jest env-var bootstrap
-├── api.test.js               PMS API client tests
+├── api.test.js               ERPNext API client tests
 ├── webhook.test.js           Webhook server + handler tests
 ├── telegram.test.js          Security guard + message handler tests
 ├── scheduler.test.js         Cron job logic tests
@@ -108,10 +109,12 @@ tests/
 ### 1. Prerequisites
 
 - Node.js ≥ 18
-- A [DoorLoop Premium](https://www.doorloop.com) account with API access enabled
-  (or a Buildium Premium account)
+- A running **ERPNext** instance (self-hosted or [Frappe Cloud](https://frappecloud.com))
+  with the **[PropMS](https://github.com/propms/propms)** app installed
+- An ERPNext API key + secret generated under ERPNext → User → API Access
 - [Telegram Bot](https://core.telegram.org/bots/tutorial) created via BotFather
 - [OpenAI API key](https://platform.openai.com)
+- [Twilio account](https://www.twilio.com) with a purchased phone number
 - A publicly reachable HTTPS URL for webhook delivery (e.g. [ngrok](https://ngrok.com) for local dev)
 
 ### 2. Install
@@ -131,25 +134,52 @@ Key variables:
 
 | Variable | Description |
 |---|---|
-| `PMS_PROVIDER` | `doorloop` (default) or `buildium` |
-| `DOORLOOP_API_KEY` | DoorLoop API token |
+| `ERPNEXT_BASE_URL` | Base URL of your ERPNext instance, e.g. `https://erpnext.example.com` |
+| `ERPNEXT_API_KEY` | ERPNext API key (from User → API Access) |
+| `ERPNEXT_API_SECRET` | ERPNext API secret |
+| `TWILIO_ACCOUNT_SID` | Twilio account SID (`ACxxx...`) |
+| `TWILIO_AUTH_TOKEN` | Twilio auth token |
+| `TWILIO_FROM_NUMBER` | Twilio phone number in E.164 format (e.g. `+15550001234`) |
 | `OPENAI_API_KEY` | OpenAI secret key |
 | `TELEGRAM_BOT_TOKEN` | Token from BotFather |
 | `TELEGRAM_ALLOWED_USER_IDS` | Comma-separated Telegram user IDs of landlord/managers |
 | `WEBHOOK_SECRET` | Shared secret for HMAC webhook verification |
 | `WEBHOOK_BASE_URL` | Public HTTPS URL of this server |
 
-### 4. Configure webhooks in DoorLoop
+### 4. Add custom fields in ERPNext
 
-In DoorLoop → Settings → Integrations → Webhooks, add:
+These fields link standard DocTypes back to your property units and leases.
+Create them via ERPNext → Customize Form:
 
-```
-https://your-server.example.com/webhooks/doorloop
-```
+| DocType | Field name | Field type |
+|---|---|---|
+| Sales Invoice | `custom_unit` | Data |
+| Sales Invoice | `custom_property` | Data |
+| Sales Invoice | `custom_lease` | Link → Rental Contract |
+| Payment Entry | `custom_unit` | Data |
+| Payment Entry | `custom_lease` | Link → Rental Contract |
+| HD Ticket | `custom_unit` | Data |
+| HD Ticket | `custom_property` | Data |
 
-Select events: `rent.overdue`, `payment.received`, `workorder.created`, `workorder.updated`
+### 5. Configure webhooks in ERPNext
 
-### 5. Run
+In ERPNext → Integrations → Webhooks, create **6 webhooks** all using
+`WEBHOOK_SECRET` as the shared secret:
+
+| DocType | Trigger | URL |
+|---|---|---|
+| Sales Invoice | `on_submit` | `{WEBHOOK_BASE_URL}/webhooks/erpnext/invoice-overdue` |
+| Payment Entry | `on_submit` | `{WEBHOOK_BASE_URL}/webhooks/erpnext/payment-received` |
+| Maintenance Request | `after_insert` | `{WEBHOOK_BASE_URL}/webhooks/erpnext/ticket-created` |
+| Maintenance Request | `on_update` | `{WEBHOOK_BASE_URL}/webhooks/erpnext/ticket-updated` |
+| Rental Contract | `on_submit` | `{WEBHOOK_BASE_URL}/webhooks/erpnext/contract-submitted` |
+| Rental Contract | `on_cancel` | `{WEBHOOK_BASE_URL}/webhooks/erpnext/contract-cancelled` |
+
+> **Sales Invoice condition:** Set the ERPNext webhook Condition to
+> `doc.outstanding_amount > 0 and doc.due_date < frappe.utils.today()`
+> so it only fires for genuinely overdue invoices.
+
+### 6. Run
 
 ```bash
 # Development (auto-restart on change)
@@ -159,7 +189,7 @@ npm run dev
 npm start
 ```
 
-### 6. Test
+### 7. Test
 
 ```bash
 npm test
@@ -171,16 +201,21 @@ npm test
 
 The `make-flows/` directory contains three importable Make.com scenario
 configurations that implement the middleware automation layer described in the
-PRD.  These complement (or replace) the built-in Node.js scheduler when a
+PRD. These complement (or replace) the built-in Node.js scheduler when a
 no-code visual editor is preferred.
 
 | Flow file | Trigger | Actions |
 |---|---|---|
-| `rent-overdue-flow.json` | DoorLoop `rent.overdue` webhook | SMS to tenant + Telegram to landlord |
-| `maintenance-alert-flow.json` | Daily 9:00 AM schedule | Query stale work orders → Telegram alert |
-| `weekly-report-flow.json` | Every Friday 17:00 | Aggregate ledger + balances + WOs → Telegram report |
+| `rent-overdue-flow.json` | ERPNext `invoice-overdue` webhook | SMS to tenant (Twilio) + Telegram to landlord |
+| `maintenance-alert-flow.json` | Daily 9:00 AM schedule | Query stale HD Tickets → Telegram alert |
+| `weekly-report-flow.json` | Every Friday 17:00 | Aggregate ledger + balances + WOs + leases → Telegram report |
 
 To import: Make.com → Scenarios → Import Blueprint → paste the JSON.
+
+You will need to configure two Make.com environment variables:
+- `ERPNEXT_BASE_URL`, `ERPNEXT_API_KEY`, `ERPNEXT_API_SECRET`
+- `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`
+- `TELEGRAM_LANDLORD_CHAT_ID`
 
 ---
 
@@ -191,8 +226,8 @@ independently of Make.com:
 
 | Job | Schedule | Action |
 |---|---|---|
-| Overdue rent sweep | Daily 08:00 PST | Query overdue balances → bulk SMS + Telegram summary |
-| Stale work-order alert | Daily 09:00 PST | Tickets open > 48 h → Telegram alert |
+| Overdue rent sweep | Daily 08:00 PST | Query overdue Sales Invoices → bulk SMS (Twilio) + Telegram summary |
+| Stale work-order alert | Daily 09:00 PST | HD Tickets open > 48 h → Telegram alert |
 | Weekly portfolio report | Friday 17:00 PST | Cash flow + delinquencies + WOs + expiring leases → Telegram |
 
 ---
@@ -206,7 +241,7 @@ Once running, message the bot from any whitelisted Telegram account:
 | `/start` | Welcome message |
 | `/help` | List example natural-language queries |
 | `/clear` | Reset conversation history |
-| Any text | NLP query routed through OpenAI → PMS API → formatted response |
+| Any text | NLP query routed through OpenAI → ERPNext API → formatted response |
 
 **Example queries:**
 - "Which tenants are late on rent this month?"
@@ -223,25 +258,26 @@ Once running, message the bot from any whitelisted Telegram account:
 
 ## Supported PMS Events (Webhooks)
 
-| Event type | Tenant SMS | Landlord Telegram |
-|---|---|---|
-| `rent.overdue` | ✅ Overdue reminder | ✅ Real-time alert |
-| `payment.received` | — | ✅ Payment confirmation |
-| `workorder.created` | — | ✅ New ticket alert |
-| `workorder.updated` | — | ✅ Vendor update alert |
-| `lease.created` | — | ✅ New lease notification |
-| `lease.expired` | — | ✅ Renewal prompt |
+| ERPNext route | Internal event | Tenant SMS | Landlord Telegram |
+|---|---|---|---|
+| `/erpnext/invoice-overdue` | `rent.overdue` | ✅ Overdue reminder (Twilio) | ✅ Real-time alert |
+| `/erpnext/payment-received` | `payment.received` | — | ✅ Payment confirmation |
+| `/erpnext/ticket-created` | `workorder.created` | — | ✅ New ticket alert |
+| `/erpnext/ticket-updated` | `workorder.updated` | — | ✅ Vendor update alert |
+| `/erpnext/contract-submitted` | `lease.created` | — | ✅ New lease notification |
+| `/erpnext/contract-cancelled` | `lease.expired` | — | ✅ Renewal prompt |
 
 ---
 
 ## Security Notes
 
-- All webhook endpoints verify an **HMAC-SHA256 signature** (shared secret between
-  the PMS and this server).  Requests with invalid or missing signatures are
-  rejected with HTTP 401.
+- All webhook endpoints verify an **HMAC-SHA256 signature** via the
+  `X-Frappe-Webhook-Signature` header (hex digest, shared secret set in both
+  ERPNext webhook config and `WEBHOOK_SECRET` env var). Requests with invalid
+  or missing signatures are rejected with HTTP 401.
 - The Telegram bot enforces a **static allowlist** of Telegram user IDs.
   Messages from any other account are silently discarded.
 - API credentials are loaded exclusively from environment variables — never
   hard-coded.
-- DoorLoop communication uses **AES-256 / TLS** per DoorLoop's API spec.
-- Buildium uses **HTTP Basic auth** over TLS with your Client ID and Secret.
+- ERPNext communication uses **token-based auth over TLS** (`Authorization: token key:secret`).
+- Twilio SMS uses **HTTP Basic auth over TLS** with your Account SID and Auth Token.

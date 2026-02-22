@@ -1,11 +1,12 @@
 {
   "_meta": {
     "title": "Weekly Portfolio Report – Financial + Operational Summary",
-    "description": "Runs every Friday at 17:00. Queries the PMS for the week's general ledger transactions, outstanding balances, open work orders, and soon-to-expire leases. Compiles and delivers a formatted summary to the landlord via Telegram.",
-    "version": "1.0.0",
+    "description": "Runs every Friday at 17:00. Queries ERPNext for the week's GL entries, outstanding invoices, open work orders, and soon-to-expire Rental Contracts. Compiles and delivers a formatted summary to the landlord via Telegram.",
+    "version": "2.0.0",
     "platform": "Make.com (formerly Integromat)",
     "tier_required": "Pro ($16/month)",
-    "estimated_operations_per_run": 8
+    "estimated_operations_per_run": 8,
+    "pms": "ERPNext (PropMS)"
   },
 
   "scenario": {
@@ -22,16 +23,24 @@
       {
         "id": 1,
         "type": "http",
-        "name": "1a. Fetch General Ledger (this week)",
+        "name": "1a. Fetch GL Entries (this week)",
         "config": {
           "method": "GET",
-          "url": "https://api.doorloop.com/v1/accounting/generalledger",
+          "url": "{{env.ERPNEXT_BASE_URL}}/api/resource/GL%20Entry",
           "headers": [
-            { "name": "Authorization", "value": "Bearer {{env.DOORLOOP_API_KEY}}" }
+            { "name": "Authorization", "value": "token {{env.ERPNEXT_API_KEY}}:{{env.ERPNEXT_API_SECRET}}" },
+            { "name": "Accept",        "value": "application/json" }
           ],
           "queryParams": [
-            { "name": "startDate", "value": "{{formatDate(setDay(addDays(now; -6); 1); 'YYYY-MM-DD')}}" },
-            { "name": "endDate",   "value": "{{formatDate(now; 'YYYY-MM-DD')}}" }
+            {
+              "name": "filters",
+              "value": "[[\"posting_date\",\">=\",\"{{formatDate(setDay(addDays(now; -6); 1); 'YYYY-MM-DD')}}\"], [\"posting_date\",\"<=\",\"{{formatDate(now; 'YYYY-MM-DD')}}\"]]"
+            },
+            {
+              "name": "fields",
+              "value": "[\"name\",\"account\",\"debit\",\"credit\",\"voucher_type\",\"posting_date\",\"remarks\"]"
+            },
+            { "name": "limit_page_length", "value": "500" }
           ],
           "parseResponse": true
         },
@@ -41,12 +50,24 @@
       {
         "id": 2,
         "type": "http",
-        "name": "1b. Fetch Outstanding Balances",
+        "name": "1b. Fetch Outstanding Sales Invoices",
         "config": {
           "method": "GET",
-          "url": "https://api.doorloop.com/v1/rentals/outstandingbalances",
+          "url": "{{env.ERPNEXT_BASE_URL}}/api/resource/Sales%20Invoice",
           "headers": [
-            { "name": "Authorization", "value": "Bearer {{env.DOORLOOP_API_KEY}}" }
+            { "name": "Authorization", "value": "token {{env.ERPNEXT_API_KEY}}:{{env.ERPNEXT_API_SECRET}}" },
+            { "name": "Accept",        "value": "application/json" }
+          ],
+          "queryParams": [
+            {
+              "name": "filters",
+              "value": "[[\"docstatus\",\"=\",1],[\"outstanding_amount\",\">\",0]]"
+            },
+            {
+              "name": "fields",
+              "value": "[\"name\",\"customer_name\",\"outstanding_amount\",\"due_date\",\"custom_unit\"]"
+            },
+            { "name": "limit_page_length", "value": "500" }
           ],
           "parseResponse": true
         },
@@ -56,15 +77,24 @@
       {
         "id": 3,
         "type": "http",
-        "name": "1c. Fetch Open Work Orders",
+        "name": "1c. Fetch Open HD Tickets (Work Orders)",
         "config": {
           "method": "GET",
-          "url": "https://api.doorloop.com/v1/workorders",
+          "url": "{{env.ERPNEXT_BASE_URL}}/api/resource/HD%20Ticket",
           "headers": [
-            { "name": "Authorization", "value": "Bearer {{env.DOORLOOP_API_KEY}}" }
+            { "name": "Authorization", "value": "token {{env.ERPNEXT_API_KEY}}:{{env.ERPNEXT_API_SECRET}}" },
+            { "name": "Accept",        "value": "application/json" }
           ],
           "queryParams": [
-            { "name": "status", "value": "open" }
+            {
+              "name": "filters",
+              "value": "[[\"status\",\"in\",[\"Open\",\"Replied\"]]]"
+            },
+            {
+              "name": "fields",
+              "value": "[\"name\",\"subject\",\"status\",\"priority\",\"custom_unit\"]"
+            },
+            { "name": "limit_page_length", "value": "500" }
           ],
           "parseResponse": true
         },
@@ -74,15 +104,24 @@
       {
         "id": 4,
         "type": "http",
-        "name": "1d. Fetch Active Leases",
+        "name": "1d. Fetch Active Rental Contracts",
         "config": {
           "method": "GET",
-          "url": "https://api.doorloop.com/v1/leases",
+          "url": "{{env.ERPNEXT_BASE_URL}}/api/resource/Rental%20Contract",
           "headers": [
-            { "name": "Authorization", "value": "Bearer {{env.DOORLOOP_API_KEY}}" }
+            { "name": "Authorization", "value": "token {{env.ERPNEXT_API_KEY}}:{{env.ERPNEXT_API_SECRET}}" },
+            { "name": "Accept",        "value": "application/json" }
           ],
           "queryParams": [
-            { "name": "status", "value": "active" }
+            {
+              "name": "filters",
+              "value": "[[\"status\",\"=\",\"Active\"]]"
+            },
+            {
+              "name": "fields",
+              "value": "[\"name\",\"tenant_name\",\"property_unit\",\"end_date\",\"monthly_rent\"]"
+            },
+            { "name": "limit_page_length", "value": "500" }
           ],
           "parseResponse": true
         },
@@ -96,7 +135,7 @@
         "config": {
           "sourceModules": [1, 2, 3, 4],
           "output": {
-            "ledger":      "{{1.data}}",
+            "glEntries":   "{{1.data}}",
             "outstanding": "{{2.data}}",
             "workOrders":  "{{3.data}}",
             "leases":      "{{4.data}}"
@@ -110,13 +149,13 @@
         "type": "set-variables",
         "name": "3. Calculate Metrics",
         "variables": {
-          "totalIncome":    "{{sum(map(filter(5.ledger; 'type'; 'income'); 'amount'))}}",
-          "totalExpenses":  "{{sum(map(filter(5.ledger; 'type'; 'expense'); 'amount'))}}",
-          "netCashFlow":    "{{6.totalIncome - 6.totalExpenses}}",
-          "overdueCount":   "{{length(filter(5.outstanding; 'amountDue'; '>'; 0))}}",
-          "overdueTotal":   "{{sum(map(filter(5.outstanding; 'amountDue'; '>'; 0); 'amountDue'))}}",
+          "totalCredits":   "{{sum(map(5.glEntries; 'credit'))}}",
+          "totalDebits":    "{{sum(map(5.glEntries; 'debit'))}}",
+          "netCashFlow":    "{{6.totalCredits - 6.totalDebits}}",
+          "overdueCount":   "{{length(5.outstanding)}}",
+          "overdueTotal":   "{{sum(map(5.outstanding; 'outstanding_amount'))}}",
           "openWOCount":    "{{length(5.workOrders)}}",
-          "expiringLeases": "{{length(filter(5.leases; 'daysUntilExpiry'; '<'; 60))}}"
+          "expiringLeases": "{{length(filter(5.leases; 'end_date'; '<'; formatDate(addDays(now; 60); 'YYYY-MM-DD')))}}"
         },
         "next": 7
       },
@@ -129,7 +168,7 @@
           "connection": "Telegram Bot – Landlord Channel",
           "chatId": "{{env.TELEGRAM_LANDLORD_CHAT_ID}}",
           "parseMode": "Markdown",
-          "text": "📊 *Weekly Portfolio Report*\n📅 Week ending {{formatDate(now; 'MMMM D, YYYY')}}\n\n💰 *Financials*\n• Gross Income: ${{formatNumber(6.totalIncome; 2)}}\n• Expenses: ${{formatNumber(6.totalExpenses; 2)}}\n• Net Cash Flow: ${{formatNumber(6.netCashFlow; 2)}}\n\n🚨 *Delinquencies*\n• {{6.overdueCount}} tenant(s) past due\n• Total outstanding: ${{formatNumber(6.overdueTotal; 2)}}\n\n🔧 *Maintenance*\n• {{6.openWOCount}} open work order(s)\n\n📋 *Leases Expiring (60 days)*\n• {{6.expiringLeases}} lease(s) requiring attention\n\n_Report generated automatically by Unified Landlord Center._"
+          "text": "📊 *Weekly Portfolio Report*\n📅 Week ending {{formatDate(now; 'MMMM D, YYYY')}}\n\n💰 *Financials (GL Entries)*\n• Total Credits: ${{formatNumber(6.totalCredits; 2)}}\n• Total Debits: ${{formatNumber(6.totalDebits; 2)}}\n• Net: ${{formatNumber(6.netCashFlow; 2)}}\n\n🚨 *Delinquencies*\n• {{6.overdueCount}} invoice(s) outstanding\n• Total outstanding: ${{formatNumber(6.overdueTotal; 2)}}\n\n🔧 *Maintenance*\n• {{6.openWOCount}} open work order(s)\n\n📋 *Leases Expiring (60 days)*\n• {{6.expiringLeases}} lease(s) requiring attention\n\n_Report generated automatically by Unified Landlord Center (ERPNext)._"
         },
         "next": null
       }
