@@ -29,7 +29,7 @@ async function main() {
   const app = createWebhookApp();
   const server = app.listen(config.webhook.port, () => {
     logger.info(`Webhook server listening on port ${config.webhook.port}`);
-    logger.info(`PMS webhook endpoint: POST ${config.webhook.baseUrl}/webhooks/${config.pms.provider}`);
+    logger.info(`ERPNext webhook base: POST ${config.webhook.baseUrl}/webhooks/erpnext/{event}`);
   });
 
   // ── 3. Telegram bot ──────────────────────────────────────────────────────────
@@ -41,7 +41,7 @@ async function main() {
   scheduler.start();
 
   logger.info('Unified Landlord Center started successfully', {
-    pmsProvider: 'doorloop',
+    pmsProvider: 'erpnext',
     reportDelivery: config.reports.delivery,
   });
 

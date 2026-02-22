@@ -3,28 +3,21 @@
 /**
  * SMS Dispatcher
  *
- * All outbound tenant SMS messages flow through this module.
+ * All outbound tenant SMS messages flow through this module via Twilio.
+ * ERPNext has no outbound SMS API, so Twilio is the sole provider.
  *
- * Strategy (in priority order):
- *   1. If USE_TWILIO=true  → use the Twilio REST API (maximum automation flexibility).
- *   2. Otherwise           → use the native PMS SMS endpoint (DoorLoop Communications
- *                            Center or Buildium equivalent), which requires no additional
- *                            account setup and uses the dedicated local number registered
- *                            in the PMS.
- *
- * The caller always calls dispatcher.send() and never needs to know which
- * backend is active.
+ * The caller always uses dispatcher.send() and never needs to know the
+ * underlying transport.
  */
 
 const axios = require('axios');
 const logger = require('../logger');
 const { config } = require('../config');
-const pmsClient = require('../api/index');
 
-// ─── Twilio backend ──────────────────────────────────────────────────────────
+// ─── Twilio backend ───────────────────────────────────────────────────────────
 
 async function sendViaTwilio({ phone, message }) {
-  if (!phone) throw new Error('phone number is required for Twilio dispatch');
+  if (!phone) throw new Error('phone number is required for SMS dispatch');
 
   const url = `https://api.twilio.com/2010-04-01/Accounts/${config.twilio.accountSid}/Messages.json`;
 
@@ -47,36 +40,22 @@ async function sendViaTwilio({ phone, message }) {
   return data;
 }
 
-// ─── Native PMS backend ───────────────────────────────────────────────────────
-
-async function sendViaPMS({ tenantId, phone, message }) {
-  if (tenantId) {
-    return pmsClient.sendSMS(tenantId, message);
-  }
-  if (phone) {
-    return pmsClient.sendSMSToPhone(phone, message);
-  }
-  throw new Error('Either tenantId or phone is required for PMS SMS dispatch');
-}
-
 // ─── Public interface ─────────────────────────────────────────────────────────
 
 /**
- * Send an SMS to a tenant.
+ * Send an SMS to a tenant via Twilio.
  *
  * @param {Object} options
- * @param {string} [options.tenantId] – PMS tenant ID (preferred for PMS backend)
- * @param {string} [options.phone]    – E.164 phone number (required for Twilio)
- * @param {string} options.message    – Message body
+ * @param {string} options.phone    – E.164 phone number (e.g. "+15550001234")
+ * @param {string} options.message  – Message body
+ * @param {string} [options.tenantId] – ERPNext Customer name (for log context only)
  */
 async function send({ tenantId, phone, message }) {
   if (!message) throw new Error('message is required');
+  if (!phone) throw new Error('phone is required – look up the tenant phone from ERPNext before calling send()');
 
   try {
-    if (config.twilio.enabled) {
-      return await sendViaTwilio({ phone, message });
-    }
-    return await sendViaPMS({ tenantId, phone, message });
+    return await sendViaTwilio({ phone, message });
   } catch (err) {
     logger.error('SMS dispatch failed', {
       tenantId,

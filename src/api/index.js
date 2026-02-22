@@ -1,5 +1,5 @@
 'use strict';
 
-const DoorLoopClient = require('./doorloop');
+const ERPNextClient = require('./erpnext');
 
-module.exports = new DoorLoopClient();
+module.exports = new ERPNextClient();

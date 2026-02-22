@@ -54,10 +54,13 @@ const handlers = {
       `Lease ID: ${leaseId}\n\n` +
       `An automated SMS reminder has been dispatched to the tenant.`;
 
-    await Promise.allSettled([
-      getSMS().send({ tenantId, phone: tenantPhone, message: tenantMsg }),
-      getTelegram().notifyLandlord(landlordMsg),
-    ]);
+    // tenantPhone is looked up from ERPNext before the event is raised;
+    // skip SMS (but still alert landlord) if the number wasn't found.
+    const smsPromise = tenantPhone
+      ? getSMS().send({ tenantId, phone: tenantPhone, message: tenantMsg })
+      : Promise.resolve();
+
+    await Promise.allSettled([smsPromise, getTelegram().notifyLandlord(landlordMsg)]);
   },
 
   /**
