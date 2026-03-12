@@ -27,7 +27,7 @@
  *  - Sales Invoice / invoice-overdue:
  *      (doc.outstanding_amount or 0) > 0 and doc.due_date < frappe.utils.today()
  *  - Lease / contract-cancelled (on_update):
- *      doc.status in ("Cancelled", "Expired")
+ *      doc.lease_status in ("Closed", "Not Materialized", "Vacating")
  */
 
 const crypto = require('crypto');
@@ -274,8 +274,8 @@ router.post('/erpnext/contract-submitted', validateSignature, async (req, res) =
 /**
  * POST /webhooks/erpnext/contract-cancelled
  *
- * Triggered when a Lease status changes to Cancelled or Expired (on_update).
- * Set Condition in ERPNext: doc.status in ("Cancelled", "Expired")
+ * Triggered when a Lease lease_status changes to a terminal value (on_update).
+ * Set Condition in ERPNext: doc.lease_status in ("Closed", "Not Materialized", "Vacating")
  *
  * Payload key fields: name, tenant_name, property_unit, status
  */

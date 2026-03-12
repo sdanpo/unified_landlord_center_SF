@@ -196,7 +196,7 @@ In ERPNext → Integrations → Webhooks, create **6 webhooks** all using
 
 > **Conditions to set in ERPNext:**
 > - Sales Invoice (`invoice-overdue`): `(doc.outstanding_amount or 0) > 0 and doc.due_date < frappe.utils.today()`
-> - Lease (`contract-cancelled`): `doc.status in ("Cancelled", "Expired")`
+> - Lease (`contract-cancelled`): `doc.lease_status in ("Closed", "Not Materialized", "Vacating")`
 
 ### 6. Run
 
