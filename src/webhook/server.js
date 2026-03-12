@@ -25,7 +25,7 @@
  *
  * Conditions to set in ERPNext:
  *  - Sales Invoice / invoice-overdue:
- *      flt(doc.outstanding_amount) > 0 and doc.due_date < frappe.utils.today()
+ *      (doc.outstanding_amount or 0) > 0 and doc.due_date < frappe.utils.today()
  *  - Lease / contract-cancelled (on_update):
  *      doc.status in ("Cancelled", "Expired")
  */
