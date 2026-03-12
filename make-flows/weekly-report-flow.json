@@ -77,10 +77,10 @@
       {
         "id": 3,
         "type": "http",
-        "name": "1c. Fetch Open Issues (Work Orders)",
+        "name": "1c. Fetch Open HD Tickets (Work Orders)",
         "config": {
           "method": "GET",
-          "url": "{{env.ERPNEXT_BASE_URL}}/api/resource/Issue",
+          "url": "{{env.ERPNEXT_BASE_URL}}/api/resource/HD%20Ticket",
           "headers": [
             { "name": "Authorization", "value": "token {{env.ERPNEXT_API_KEY}}:{{env.ERPNEXT_API_SECRET}}" },
             { "name": "Accept",        "value": "application/json" }
@@ -104,10 +104,10 @@
       {
         "id": 4,
         "type": "http",
-        "name": "1d. Fetch Active Leases",
+        "name": "1d. Fetch Active Rental Contracts",
         "config": {
           "method": "GET",
-          "url": "{{env.ERPNEXT_BASE_URL}}/api/resource/Lease",
+          "url": "{{env.ERPNEXT_BASE_URL}}/api/resource/Rental%20Contract",
           "headers": [
             { "name": "Authorization", "value": "token {{env.ERPNEXT_API_KEY}}:{{env.ERPNEXT_API_SECRET}}" },
             { "name": "Accept",        "value": "application/json" }
