@@ -8,7 +8,8 @@
     "dev": "nodemon src/index.js",
     "test": "jest --coverage --forceExit",
     "test:watch": "jest --watch",
-    "lint": "eslint 'src/**/*.js' 'tests/**/*.js'"
+    "lint": "eslint 'src/**/*.js' 'tests/**/*.js'",
+    "setup:erpnext": "node scripts/setup-erpnext-fields.js"
   },
   "keywords": [
     "property-management",

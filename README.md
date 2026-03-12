@@ -110,7 +110,9 @@ tests/
 
 - Node.js ≥ 18
 - A running **ERPNext** instance (self-hosted or [Frappe Cloud](https://frappecloud.com))
-  with the **[PropMS](https://github.com/propms/propms)** app installed
+  with the **[navariltd/utility-billing](https://github.com/navariltd/utility-billing)**
+  Frappe app installed — this provides the `Rental Contract`, `Property`, and
+  `Property Unit` DocTypes that the system depends on
 - An ERPNext API key + secret generated under ERPNext → User → API Access
 - [Telegram Bot](https://core.telegram.org/bots/tutorial) created via BotFather
 - [OpenAI API key](https://platform.openai.com)
@@ -149,17 +151,33 @@ Key variables:
 ### 4. Add custom fields in ERPNext
 
 These fields link standard DocTypes back to your property units and leases.
-Create them via ERPNext → Customize Form:
 
-| DocType | Field name | Field type |
-|---|---|---|
-| Sales Invoice | `custom_unit` | Data |
-| Sales Invoice | `custom_property` | Data |
-| Sales Invoice | `custom_lease` | Link → Rental Contract |
-| Payment Entry | `custom_unit` | Data |
-| Payment Entry | `custom_lease` | Link → Rental Contract |
-| HD Ticket | `custom_unit` | Data |
-| HD Ticket | `custom_property` | Data |
+> **Important:** The `custom_lease` fields use field type **Link → Rental Contract**.
+> ERPNext validates that the linked DocType exists when saving the field, and will
+> reject it with *"Options must be a valid DocType for field lease"* if the
+> `navariltd/utility-billing` app is not yet installed.  Complete step 1
+> (install the app) before creating these fields.
+
+**Option A — automated (recommended):** run the provided setup script:
+
+```bash
+node scripts/setup-erpnext-fields.js
+```
+
+The script checks the prerequisite, creates all fields in one pass, and skips
+any that already exist.
+
+**Option B — manual** via ERPNext → Customize Form:
+
+| DocType | Field name | Field type | Notes |
+|---|---|---|---|
+| Sales Invoice | `custom_unit` | Data | |
+| Sales Invoice | `custom_property` | Data | |
+| Sales Invoice | `custom_lease` | Link → `Rental Contract` | Requires utility-billing app |
+| Payment Entry | `custom_unit` | Data | |
+| Payment Entry | `custom_lease` | Link → `Rental Contract` | Requires utility-billing app |
+| HD Ticket | `custom_unit` | Data | |
+| HD Ticket | `custom_property` | Data | |
 
 ### 5. Configure webhooks in ERPNext
 
