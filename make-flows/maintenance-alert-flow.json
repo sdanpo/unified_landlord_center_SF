@@ -1,98 +1,118 @@
 {
-  "_meta": {
-    "title": "Stale Maintenance Ticket – Proactive Landlord Alert",
-    "description": "Runs daily at 9:00 AM. Queries ERPNext for all HD Tickets (Maintenance Requests) that have been in Open or Replied status for more than 48 hours. Sends a consolidated Telegram alert to the landlord listing every stale ticket.",
-    "version": "2.0.0",
-    "platform": "Make.com (formerly Integromat)",
-    "tier_required": "Pro ($16/month)",
-    "estimated_operations_per_run": 3,
-    "pms": "ERPNext (PropMS)"
-  },
-
-  "scenario": {
-    "name": "Stale Maintenance Ticket – Daily Proactive Alert",
-    "scheduling": {
-      "type": "scheduled",
-      "interval": "daily",
-      "time": "09:00",
-      "timezone": "America/Los_Angeles"
-    },
-
-    "modules": [
-      {
-        "id": 1,
-        "type": "http",
-        "name": "1. Query ERPNext for Stale HD Tickets (> 48 h)",
-        "config": {
-          "method": "GET",
-          "url": "{{env.ERPNEXT_BASE_URL}}/api/resource/HD%20Ticket",
-          "headers": [
-            { "name": "Authorization", "value": "token {{env.ERPNEXT_API_KEY}}:{{env.ERPNEXT_API_SECRET}}" },
-            { "name": "Accept",        "value": "application/json" }
-          ],
-          "queryParams": [
-            {
-              "name": "filters",
-              "value": "[[\"status\",\"in\",[\"Open\",\"Replied\"]],[\"creation\",\"<\",\"{{formatDate(addHours(now; -48); 'YYYY-MM-DD HH:mm:ss')}}\"]]"
-            },
-            {
-              "name": "fields",
-              "value": "[\"name\",\"subject\",\"status\",\"priority\",\"customer_name\",\"custom_unit\",\"custom_property\",\"creation\"]"
-            },
-            { "name": "limit_page_length", "value": "500" },
-            { "name": "order_by",          "value": "creation asc" }
-          ],
-          "parseResponse": true
-        },
-        "next": 2
+  "name": "Stale Maintenance Ticket – Daily Proactive Alert",
+  "flow": [
+    {
+      "id": 1,
+      "module": "http:ActionSendData",
+      "version": 3,
+      "parameters": { "handleErrors": false, "useNewZLibDecompression": true },
+      "mapper": {
+        "url": "YOUR_ERPNEXT_BASE_URL/api/resource/Issue",
+        "serializeUrl": false,
+        "method": "get",
+        "headers": [
+          { "key": "Authorization", "value": "token YOUR_ERPNEXT_API_KEY:YOUR_ERPNEXT_API_SECRET" },
+          { "key": "Accept", "value": "application/json" }
+        ],
+        "qs": [
+          { "key": "filters", "value": "[[\"status\",\"in\",[\"Open\",\"Replied\"]],[\"creation\",\"<\",\"{{formatDate(addHours(now; -48); 'YYYY-MM-DD HH:mm:ss')}}\"]]" },
+          { "key": "fields",  "value": "[\"name\",\"subject\",\"status\",\"priority\",\"customer_name\",\"custom_unit\",\"custom_property\",\"creation\"]" },
+          { "key": "limit_page_length", "value": "500" },
+          { "key": "order_by", "value": "creation asc" }
+        ],
+        "bodyType": "",
+        "parseResponse": true
       },
-
-      {
-        "id": 2,
-        "type": "router",
-        "name": "2. Check if Any Stale Tickets Exist",
-        "routes": [
-          {
-            "label": "Stale tickets found",
-            "condition": {
-              "field": "{{length(1.data)}}",
-              "operator": "greater-than",
-              "value": "0"
-            },
-            "next": 3
-          },
-          {
-            "label": "No stale tickets – stop",
-            "condition": null,
-            "next": null
-          }
-        ]
-      },
-
-      {
-        "id": 3,
-        "type": "text-aggregator",
-        "name": "3. Build Ticket Summary Text",
-        "config": {
-          "sourceModule": 1,
-          "rowSeparator": "\\n\\n",
-          "text": "• *Ticket {{item.name}}* – Unit {{item.custom_unit}}\n  Issue: {{item.subject}}\n  Tenant: {{item.customer_name}}\n  Priority: {{item.priority}}\n  Open for: {{round(dateDiff(parseDate(item.creation; 'YYYY-MM-DD HH:mm:ss'); now; 'hours'))}} hours\n  Status: {{item.status}}"
-        },
-        "next": 4
-      },
-
-      {
-        "id": 4,
-        "type": "telegram-bot",
-        "name": "4. Send Stale-Ticket Alert to Landlord",
-        "config": {
-          "connection": "Telegram Bot – Landlord Channel",
-          "chatId": "{{env.TELEGRAM_LANDLORD_CHAT_ID}}",
-          "parseMode": "Markdown",
-          "text": "⚠️ *Stale Maintenance Tickets*\n\n{{length(1.data)}} work order(s) have been open for more than 48 hours:\n\n{{3.text}}\n\nPlease follow up with the assigned vendors."
-        },
-        "next": null
+      "metadata": {
+        "designer": { "x": 0, "y": 0 },
+        "restore": { "expect": { "method": { "label": "GET" } } }
       }
-    ]
+    },
+    {
+      "id": 2,
+      "module": "builtin:BasicRouter",
+      "version": 1,
+      "parameters": {},
+      "mapper": {},
+      "metadata": { "designer": { "x": 300, "y": 0 } },
+      "routes": [
+        {
+          "label": "Stale tickets found",
+          "filter": {
+            "name": "Has stale tickets",
+            "conditions": [
+              [ { "a": "{{length(1.data.message)}}", "b": "0", "o": "greater" } ]
+            ]
+          },
+          "flow": [
+            {
+              "id": 3,
+              "module": "builtin:Iterator",
+              "version": 1,
+              "parameters": {},
+              "mapper": { "array": "{{1.data.message}}" },
+              "metadata": { "designer": { "x": 600, "y": -150 } }
+            },
+            {
+              "id": 4,
+              "module": "builtin:TextAggregator",
+              "version": 1,
+              "parameters": { "feeder": 3, "rowSeparator": "\n\n" },
+              "mapper": {
+                "value": "• *{{3.name}}* – Unit {{3.custom_unit}}\n  Issue: {{3.subject}}\n  Tenant: {{3.customer_name}}\n  Priority: {{3.priority}}\n  Open for: {{round(dateDiff(parseDate(3.creation; 'YYYY-MM-DD HH:mm:ss'); now; 'hours'))}} hours\n  Status: {{3.status}}"
+              },
+              "metadata": {
+                "designer": { "x": 900, "y": -150 },
+                "restore": {
+                  "parameters": { "feeder": { "label": "3. Iterator" } }
+                }
+              }
+            },
+            {
+              "id": 5,
+              "module": "http:ActionSendData",
+              "version": 3,
+              "parameters": { "handleErrors": false, "useNewZLibDecompression": true },
+              "mapper": {
+                "url": "https://api.telegram.org/botYOUR_TELEGRAM_BOT_TOKEN/sendMessage",
+                "serializeUrl": false,
+                "method": "post",
+                "headers": [ { "key": "Content-Type", "value": "application/json" } ],
+                "qs": [],
+                "bodyType": "raw",
+                "contentType": "application/json",
+                "body": "{\"chat_id\":\"YOUR_TELEGRAM_LANDLORD_CHAT_ID\",\"parse_mode\":\"Markdown\",\"text\":\"⚠️ *Stale Maintenance Tickets*\\n\\n{{length(1.data.message)}} work order(s) open for more than 48 hours:\\n\\n{{4.text}}\\n\\nPlease follow up with the assigned vendors.\"}",
+                "parseResponse": true
+              },
+              "metadata": {
+                "designer": { "x": 1200, "y": -150 },
+                "restore": { "expect": { "method": { "label": "POST" } } }
+              }
+            }
+          ]
+        },
+        {
+          "label": "No stale tickets – stop",
+          "flow": []
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "instant": false,
+    "version": 1,
+    "scenario": {
+      "roundtrips": 1,
+      "maxErrors": 3,
+      "autoCommit": true,
+      "autoCommitTriggerLast": true,
+      "sequential": false,
+      "confidential": false,
+      "dataloss": false,
+      "dlq": false,
+      "freshVariables": false
+    },
+    "designer": { "orphans": [] },
+    "zone": "eu1.make.com"
   }
 }

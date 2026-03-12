@@ -1,177 +1,147 @@
 {
-  "_meta": {
-    "title": "Weekly Portfolio Report – Financial + Operational Summary",
-    "description": "Runs every Friday at 17:00. Queries ERPNext for the week's GL entries, outstanding invoices, open work orders, and soon-to-expire Rental Contracts. Compiles and delivers a formatted summary to the landlord via Telegram.",
-    "version": "2.0.0",
-    "platform": "Make.com (formerly Integromat)",
-    "tier_required": "Pro ($16/month)",
-    "estimated_operations_per_run": 8,
-    "pms": "ERPNext (PropMS)"
-  },
-
-  "scenario": {
-    "name": "Weekly Portfolio Report – Friday 17:00",
-    "scheduling": {
-      "type": "scheduled",
-      "interval": "weekly",
-      "dayOfWeek": "Friday",
-      "time": "17:00",
-      "timezone": "America/Los_Angeles"
-    },
-
-    "modules": [
-      {
-        "id": 1,
-        "type": "http",
-        "name": "1a. Fetch GL Entries (this week)",
-        "config": {
-          "method": "GET",
-          "url": "{{env.ERPNEXT_BASE_URL}}/api/resource/GL%20Entry",
-          "headers": [
-            { "name": "Authorization", "value": "token {{env.ERPNEXT_API_KEY}}:{{env.ERPNEXT_API_SECRET}}" },
-            { "name": "Accept",        "value": "application/json" }
-          ],
-          "queryParams": [
-            {
-              "name": "filters",
-              "value": "[[\"posting_date\",\">=\",\"{{formatDate(setDay(addDays(now; -6); 1); 'YYYY-MM-DD')}}\"], [\"posting_date\",\"<=\",\"{{formatDate(now; 'YYYY-MM-DD')}}\"]]"
-            },
-            {
-              "name": "fields",
-              "value": "[\"name\",\"account\",\"debit\",\"credit\",\"voucher_type\",\"posting_date\",\"remarks\"]"
-            },
-            { "name": "limit_page_length", "value": "500" }
-          ],
-          "parseResponse": true
-        },
-        "next": [2, 3, 4]
+  "name": "Weekly Portfolio Report – Friday 17:00",
+  "flow": [
+    {
+      "id": 1,
+      "module": "http:ActionSendData",
+      "version": 3,
+      "parameters": { "handleErrors": false, "useNewZLibDecompression": true },
+      "mapper": {
+        "url": "YOUR_ERPNEXT_BASE_URL/api/resource/GL%20Entry",
+        "serializeUrl": false,
+        "method": "get",
+        "headers": [
+          { "key": "Authorization", "value": "token YOUR_ERPNEXT_API_KEY:YOUR_ERPNEXT_API_SECRET" },
+          { "key": "Accept", "value": "application/json" }
+        ],
+        "qs": [
+          { "key": "filters", "value": "[[\"posting_date\",\">=\",\"{{formatDate(addDays(now; -6); 'YYYY-MM-DD')}}\"], [\"posting_date\",\"<=\",\"{{formatDate(now; 'YYYY-MM-DD')}}\"]]" },
+          { "key": "fields",  "value": "[\"name\",\"account\",\"debit\",\"credit\",\"voucher_type\",\"posting_date\",\"remarks\"]" },
+          { "key": "limit_page_length", "value": "500" }
+        ],
+        "bodyType": "",
+        "parseResponse": true
       },
-
-      {
-        "id": 2,
-        "type": "http",
-        "name": "1b. Fetch Outstanding Sales Invoices",
-        "config": {
-          "method": "GET",
-          "url": "{{env.ERPNEXT_BASE_URL}}/api/resource/Sales%20Invoice",
-          "headers": [
-            { "name": "Authorization", "value": "token {{env.ERPNEXT_API_KEY}}:{{env.ERPNEXT_API_SECRET}}" },
-            { "name": "Accept",        "value": "application/json" }
-          ],
-          "queryParams": [
-            {
-              "name": "filters",
-              "value": "[[\"docstatus\",\"=\",1],[\"outstanding_amount\",\">\",0]]"
-            },
-            {
-              "name": "fields",
-              "value": "[\"name\",\"customer_name\",\"outstanding_amount\",\"due_date\",\"custom_unit\"]"
-            },
-            { "name": "limit_page_length", "value": "500" }
-          ],
-          "parseResponse": true
-        },
-        "next": null
-      },
-
-      {
-        "id": 3,
-        "type": "http",
-        "name": "1c. Fetch Open HD Tickets (Work Orders)",
-        "config": {
-          "method": "GET",
-          "url": "{{env.ERPNEXT_BASE_URL}}/api/resource/HD%20Ticket",
-          "headers": [
-            { "name": "Authorization", "value": "token {{env.ERPNEXT_API_KEY}}:{{env.ERPNEXT_API_SECRET}}" },
-            { "name": "Accept",        "value": "application/json" }
-          ],
-          "queryParams": [
-            {
-              "name": "filters",
-              "value": "[[\"status\",\"in\",[\"Open\",\"Replied\"]]]"
-            },
-            {
-              "name": "fields",
-              "value": "[\"name\",\"subject\",\"status\",\"priority\",\"custom_unit\"]"
-            },
-            { "name": "limit_page_length", "value": "500" }
-          ],
-          "parseResponse": true
-        },
-        "next": null
-      },
-
-      {
-        "id": 4,
-        "type": "http",
-        "name": "1d. Fetch Active Rental Contracts",
-        "config": {
-          "method": "GET",
-          "url": "{{env.ERPNEXT_BASE_URL}}/api/resource/Rental%20Contract",
-          "headers": [
-            { "name": "Authorization", "value": "token {{env.ERPNEXT_API_KEY}}:{{env.ERPNEXT_API_SECRET}}" },
-            { "name": "Accept",        "value": "application/json" }
-          ],
-          "queryParams": [
-            {
-              "name": "filters",
-              "value": "[[\"status\",\"=\",\"Active\"]]"
-            },
-            {
-              "name": "fields",
-              "value": "[\"name\",\"tenant_name\",\"property_unit\",\"end_date\",\"monthly_rent\"]"
-            },
-            { "name": "limit_page_length", "value": "500" }
-          ],
-          "parseResponse": true
-        },
-        "next": null
-      },
-
-      {
-        "id": 5,
-        "type": "json-aggregator",
-        "name": "2. Aggregate All Data",
-        "config": {
-          "sourceModules": [1, 2, 3, 4],
-          "output": {
-            "glEntries":   "{{1.data}}",
-            "outstanding": "{{2.data}}",
-            "workOrders":  "{{3.data}}",
-            "leases":      "{{4.data}}"
-          }
-        },
-        "next": 6
-      },
-
-      {
-        "id": 6,
-        "type": "set-variables",
-        "name": "3. Calculate Metrics",
-        "variables": {
-          "totalCredits":   "{{sum(map(5.glEntries; 'credit'))}}",
-          "totalDebits":    "{{sum(map(5.glEntries; 'debit'))}}",
-          "netCashFlow":    "{{6.totalCredits - 6.totalDebits}}",
-          "overdueCount":   "{{length(5.outstanding)}}",
-          "overdueTotal":   "{{sum(map(5.outstanding; 'outstanding_amount'))}}",
-          "openWOCount":    "{{length(5.workOrders)}}",
-          "expiringLeases": "{{length(filter(5.leases; 'end_date'; '<'; formatDate(addDays(now; 60); 'YYYY-MM-DD')))}}"
-        },
-        "next": 7
-      },
-
-      {
-        "id": 7,
-        "type": "telegram-bot",
-        "name": "4. Deliver Report via Telegram",
-        "config": {
-          "connection": "Telegram Bot – Landlord Channel",
-          "chatId": "{{env.TELEGRAM_LANDLORD_CHAT_ID}}",
-          "parseMode": "Markdown",
-          "text": "📊 *Weekly Portfolio Report*\n📅 Week ending {{formatDate(now; 'MMMM D, YYYY')}}\n\n💰 *Financials (GL Entries)*\n• Total Credits: ${{formatNumber(6.totalCredits; 2)}}\n• Total Debits: ${{formatNumber(6.totalDebits; 2)}}\n• Net: ${{formatNumber(6.netCashFlow; 2)}}\n\n🚨 *Delinquencies*\n• {{6.overdueCount}} invoice(s) outstanding\n• Total outstanding: ${{formatNumber(6.overdueTotal; 2)}}\n\n🔧 *Maintenance*\n• {{6.openWOCount}} open work order(s)\n\n📋 *Leases Expiring (60 days)*\n• {{6.expiringLeases}} lease(s) requiring attention\n\n_Report generated automatically by Unified Landlord Center (ERPNext)._"
-        },
-        "next": null
+      "metadata": {
+        "designer": { "x": 0, "y": 0 },
+        "restore": { "expect": { "method": { "label": "GET" } } }
       }
-    ]
+    },
+    {
+      "id": 2,
+      "module": "http:ActionSendData",
+      "version": 3,
+      "parameters": { "handleErrors": false, "useNewZLibDecompression": true },
+      "mapper": {
+        "url": "YOUR_ERPNEXT_BASE_URL/api/resource/Sales%20Invoice",
+        "serializeUrl": false,
+        "method": "get",
+        "headers": [
+          { "key": "Authorization", "value": "token YOUR_ERPNEXT_API_KEY:YOUR_ERPNEXT_API_SECRET" },
+          { "key": "Accept", "value": "application/json" }
+        ],
+        "qs": [
+          { "key": "filters", "value": "[[\"docstatus\",\"=\",1],[\"outstanding_amount\",\">\",0]]" },
+          { "key": "fields",  "value": "[\"name\",\"customer_name\",\"outstanding_amount\",\"due_date\",\"custom_unit\"]" },
+          { "key": "limit_page_length", "value": "500" }
+        ],
+        "bodyType": "",
+        "parseResponse": true
+      },
+      "metadata": {
+        "designer": { "x": 300, "y": 0 },
+        "restore": { "expect": { "method": { "label": "GET" } } }
+      }
+    },
+    {
+      "id": 3,
+      "module": "http:ActionSendData",
+      "version": 3,
+      "parameters": { "handleErrors": false, "useNewZLibDecompression": true },
+      "mapper": {
+        "url": "YOUR_ERPNEXT_BASE_URL/api/resource/Issue",
+        "serializeUrl": false,
+        "method": "get",
+        "headers": [
+          { "key": "Authorization", "value": "token YOUR_ERPNEXT_API_KEY:YOUR_ERPNEXT_API_SECRET" },
+          { "key": "Accept", "value": "application/json" }
+        ],
+        "qs": [
+          { "key": "filters", "value": "[[\"status\",\"in\",[\"Open\",\"Replied\"]]]" },
+          { "key": "fields",  "value": "[\"name\",\"subject\",\"status\",\"priority\",\"custom_unit\"]" },
+          { "key": "limit_page_length", "value": "500" }
+        ],
+        "bodyType": "",
+        "parseResponse": true
+      },
+      "metadata": {
+        "designer": { "x": 600, "y": 0 },
+        "restore": { "expect": { "method": { "label": "GET" } } }
+      }
+    },
+    {
+      "id": 4,
+      "module": "http:ActionSendData",
+      "version": 3,
+      "parameters": { "handleErrors": false, "useNewZLibDecompression": true },
+      "mapper": {
+        "url": "YOUR_ERPNEXT_BASE_URL/api/resource/Lease",
+        "serializeUrl": false,
+        "method": "get",
+        "headers": [
+          { "key": "Authorization", "value": "token YOUR_ERPNEXT_API_KEY:YOUR_ERPNEXT_API_SECRET" },
+          { "key": "Accept", "value": "application/json" }
+        ],
+        "qs": [
+          { "key": "filters", "value": "[[\"lease_status\",\"=\",\"Active\"],[\"end_date\",\"<\",\"{{formatDate(addDays(now; 60); 'YYYY-MM-DD')}}\"]]" },
+          { "key": "fields",  "value": "[\"name\",\"tenant_name\",\"property_unit\",\"end_date\",\"monthly_rent\"]" },
+          { "key": "limit_page_length", "value": "500" }
+        ],
+        "bodyType": "",
+        "parseResponse": true
+      },
+      "metadata": {
+        "designer": { "x": 900, "y": 0 },
+        "restore": { "expect": { "method": { "label": "GET" } } }
+      }
+    },
+    {
+      "id": 5,
+      "module": "http:ActionSendData",
+      "version": 3,
+      "parameters": { "handleErrors": false, "useNewZLibDecompression": true },
+      "mapper": {
+        "url": "https://api.telegram.org/botYOUR_TELEGRAM_BOT_TOKEN/sendMessage",
+        "serializeUrl": false,
+        "method": "post",
+        "headers": [ { "key": "Content-Type", "value": "application/json" } ],
+        "qs": [],
+        "bodyType": "raw",
+        "contentType": "application/json",
+        "body": "{\"chat_id\":\"YOUR_TELEGRAM_LANDLORD_CHAT_ID\",\"parse_mode\":\"Markdown\",\"text\":\"📊 *Weekly Portfolio Report*\\n📅 Week ending {{formatDate(now; 'MMMM D, YYYY')}}\\n\\n💰 *Financials (GL Entries)*\\n• Total Credits: ${{formatNumber(sum(map(1.data.message; 'credit')); 2; '.'; ',')}}\\n• Total Debits: ${{formatNumber(sum(map(1.data.message; 'debit')); 2; '.'; ',')}}\\n• Net: ${{formatNumber(subtract(sum(map(1.data.message; 'credit')); sum(map(1.data.message; 'debit'))); 2; '.'; ',')}}\\n\\n🚨 *Delinquencies*\\n• {{length(2.data.message)}} invoice(s) outstanding\\n• Total outstanding: ${{formatNumber(sum(map(2.data.message; 'outstanding_amount')); 2; '.'; ',')}}\\n\\n🔧 *Maintenance*\\n• {{length(3.data.message)}} open work order(s)\\n\\n📋 *Leases Expiring (60 days)*\\n• {{length(4.data.message)}} lease(s) requiring attention\\n\\n_Report generated automatically by Unified Landlord Center._\"}",
+        "parseResponse": true
+      },
+      "metadata": {
+        "designer": { "x": 1200, "y": 0 },
+        "restore": { "expect": { "method": { "label": "POST" } } }
+      }
+    }
+  ],
+  "metadata": {
+    "instant": false,
+    "version": 1,
+    "scenario": {
+      "roundtrips": 1,
+      "maxErrors": 3,
+      "autoCommit": true,
+      "autoCommitTriggerLast": true,
+      "sequential": false,
+      "confidential": false,
+      "dataloss": false,
+      "dlq": false,
+      "freshVariables": false
+    },
+    "designer": { "orphans": [] },
+    "zone": "eu1.make.com"
   }
 }
