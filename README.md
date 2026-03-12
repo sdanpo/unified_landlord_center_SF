@@ -191,11 +191,12 @@ In ERPNext → Integrations → Webhooks, create **6 webhooks** all using
 | Issue | `after_insert` | `{WEBHOOK_BASE_URL}/webhooks/erpnext/ticket-created` |
 | Issue | `on_update` | `{WEBHOOK_BASE_URL}/webhooks/erpnext/ticket-updated` |
 | Maintenance Visit | `after_insert` | `{WEBHOOK_BASE_URL}/webhooks/erpnext/visit-scheduled` |
-| Lease | `on_submit` | `{WEBHOOK_BASE_URL}/webhooks/erpnext/contract-submitted` |
-| Lease | `on_cancel` | `{WEBHOOK_BASE_URL}/webhooks/erpnext/contract-cancelled` |
+| Lease | `after_insert` | `{WEBHOOK_BASE_URL}/webhooks/erpnext/contract-submitted` |
+| Lease | `on_update` | `{WEBHOOK_BASE_URL}/webhooks/erpnext/contract-cancelled` |
 
-> **Sales Invoice condition:** Set the ERPNext webhook Condition to
-> `doc.outstanding_amount > 0 and doc.due_date < frappe.utils.today()`
+> **Conditions to set in ERPNext:**
+> - Sales Invoice (`invoice-overdue`): `doc.outstanding_amount > 0 and doc.due_date < frappe.utils.today()`
+> - Lease (`contract-cancelled`): `doc.status in ("Cancelled", "Expired")`
 > so it only fires for genuinely overdue invoices.
 
 ### 6. Run
