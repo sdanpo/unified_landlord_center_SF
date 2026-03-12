@@ -191,8 +191,8 @@ In ERPNext → Integrations → Webhooks, create **6 webhooks** all using
 | Issue | `after_insert` | `{WEBHOOK_BASE_URL}/webhooks/erpnext/ticket-created` |
 | Issue | `on_update` | `{WEBHOOK_BASE_URL}/webhooks/erpnext/ticket-updated` |
 | Maintenance Visit | `after_insert` | `{WEBHOOK_BASE_URL}/webhooks/erpnext/visit-scheduled` |
-| Rental Contract | `on_submit` | `{WEBHOOK_BASE_URL}/webhooks/erpnext/contract-submitted` |
-| Rental Contract | `on_cancel` | `{WEBHOOK_BASE_URL}/webhooks/erpnext/contract-cancelled` |
+| Lease | `on_submit` | `{WEBHOOK_BASE_URL}/webhooks/erpnext/contract-submitted` |
+| Lease | `on_cancel` | `{WEBHOOK_BASE_URL}/webhooks/erpnext/contract-cancelled` |
 
 > **Sales Invoice condition:** Set the ERPNext webhook Condition to
 > `doc.outstanding_amount > 0 and doc.due_date < frappe.utils.today()`

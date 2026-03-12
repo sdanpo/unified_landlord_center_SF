@@ -202,7 +202,7 @@ describe('POST /webhooks/erpnext/ticket-updated', () => {
 });
 
 describe('POST /webhooks/erpnext/contract-submitted', () => {
-  it('normalizes Rental Contract to lease.created event', async () => {
+  it('normalizes Lease to lease.created event', async () => {
     const payload = JSON.stringify({
       name: 'RC-0001',
       tenant_name: 'Alice Brown',
@@ -227,7 +227,7 @@ describe('POST /webhooks/erpnext/contract-submitted', () => {
 });
 
 describe('POST /webhooks/erpnext/contract-cancelled', () => {
-  it('normalizes Rental Contract cancellation to lease.expired event', async () => {
+  it('normalizes Lease cancellation to lease.expired event', async () => {
     const payload = JSON.stringify({
       name: 'RC-0001',
       tenant_name: 'Alice Brown',

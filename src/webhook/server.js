@@ -20,8 +20,8 @@
  *  Issue                after_insert     {BASE_URL}/webhooks/erpnext/ticket-created
  *  Issue                on_update        {BASE_URL}/webhooks/erpnext/ticket-updated
  *  Maintenance Visit    after_insert     {BASE_URL}/webhooks/erpnext/visit-scheduled
- *  Rental Contract      on_submit        {BASE_URL}/webhooks/erpnext/contract-submitted
- *  Rental Contract      on_cancel        {BASE_URL}/webhooks/erpnext/contract-cancelled
+ *  Lease      on_submit        {BASE_URL}/webhooks/erpnext/contract-submitted
+ *  Lease      on_cancel        {BASE_URL}/webhooks/erpnext/contract-cancelled
  *
  * For "Sales Invoice / invoice-overdue", set a Condition in ERPNext so it
  * only fires when outstanding_amount > 0 and due_date < today:
@@ -240,7 +240,7 @@ router.post('/erpnext/ticket-updated', validateSignature, async (req, res) => {
 /**
  * POST /webhooks/erpnext/contract-submitted
  *
- * Triggered when a Rental Contract is submitted (status → Active).
+ * Triggered when a Lease is submitted (status → Active).
  *
  * Payload key fields: name, tenant_name, property_unit, start_date,
  *   end_date, monthly_rent
@@ -272,7 +272,7 @@ router.post('/erpnext/contract-submitted', validateSignature, async (req, res) =
 /**
  * POST /webhooks/erpnext/contract-cancelled
  *
- * Triggered when a Rental Contract is cancelled (expired or early termination).
+ * Triggered when a Lease is cancelled (expired or early termination).
  *
  * Payload key fields: name, tenant_name, property_unit
  */
