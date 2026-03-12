@@ -110,9 +110,9 @@ tests/
 
 - Node.js ≥ 18
 - A running **ERPNext** instance (self-hosted or [Frappe Cloud](https://frappecloud.com))
-  with the **[navariltd/utility-billing](https://github.com/navariltd/utility-billing)**
-  Frappe app installed — this provides the `Rental Contract`, `Property`, and
-  `Property Unit` DocTypes that the system depends on
+  with the **[PropMS](https://github.com/aakvatech/PropMS)** Frappe app installed —
+  this provides the `Lease`, `Property`, and `Property Unit` DocTypes that the
+  system depends on
 - An ERPNext API key + secret generated under ERPNext → User → API Access
 - [Telegram Bot](https://core.telegram.org/bots/tutorial) created via BotFather
 - [OpenAI API key](https://platform.openai.com)
@@ -152,10 +152,10 @@ Key variables:
 
 These fields link standard DocTypes back to your property units and leases.
 
-> **Important:** The `custom_lease` fields use field type **Link → Rental Contract**.
+> **Important:** The `custom_lease` fields use field type **Link → Lease**.
 > ERPNext validates that the linked DocType exists when saving the field, and will
 > reject it with *"Options must be a valid DocType for field lease"* if the
-> `navariltd/utility-billing` app is not yet installed.  Complete step 1
+> **PropMS** app is not yet installed.  Complete step 1
 > (install the app) before creating these fields.
 
 **Option A — automated (recommended):** run the provided setup script:
@@ -173,9 +173,9 @@ any that already exist.
 |---|---|---|---|
 | Sales Invoice | `custom_unit` | Data | |
 | Sales Invoice | `custom_property` | Data | |
-| Sales Invoice | `custom_lease` | Link → `Rental Contract` | Requires utility-billing app |
+| Sales Invoice | `custom_lease` | Link → `Lease` | Requires PropMS app |
 | Payment Entry | `custom_unit` | Data | |
-| Payment Entry | `custom_lease` | Link → `Rental Contract` | Requires utility-billing app |
+| Payment Entry | `custom_lease` | Link → `Lease` | Requires PropMS app |
 | HD Ticket | `custom_unit` | Data | |
 | HD Ticket | `custom_property` | Data | |
 
@@ -190,8 +190,8 @@ In ERPNext → Integrations → Webhooks, create **6 webhooks** all using
 | Payment Entry | `on_submit` | `{WEBHOOK_BASE_URL}/webhooks/erpnext/payment-received` |
 | Maintenance Request | `after_insert` | `{WEBHOOK_BASE_URL}/webhooks/erpnext/ticket-created` |
 | Maintenance Request | `on_update` | `{WEBHOOK_BASE_URL}/webhooks/erpnext/ticket-updated` |
-| Rental Contract | `on_submit` | `{WEBHOOK_BASE_URL}/webhooks/erpnext/contract-submitted` |
-| Rental Contract | `on_cancel` | `{WEBHOOK_BASE_URL}/webhooks/erpnext/contract-cancelled` |
+| Lease | `on_submit` | `{WEBHOOK_BASE_URL}/webhooks/erpnext/contract-submitted` |
+| Lease | `on_cancel` | `{WEBHOOK_BASE_URL}/webhooks/erpnext/contract-cancelled` |
 
 > **Sales Invoice condition:** Set the ERPNext webhook Condition to
 > `doc.outstanding_amount > 0 and doc.due_date < frappe.utils.today()`

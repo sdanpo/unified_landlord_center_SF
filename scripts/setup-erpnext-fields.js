@@ -7,10 +7,10 @@
  * ERPNext instance via the REST API.
  *
  * Prerequisites:
- *   - ERPNext instance running with the navariltd/utility-billing app installed.
- *     That app provides the "Rental Contract", "Property", and "Property Unit"
+ *   - ERPNext instance running with the PropMS app installed.
+ *     That app provides the "Lease", "Property", and "Property Unit"
  *     DocTypes.  The custom_lease Link fields CANNOT be created until
- *     "Rental Contract" exists — ERPNext will reject them with:
+ *     "Lease" exists — ERPNext will reject them with:
  *       "Options must be a valid DocType for field lease"
  *   - .env file populated (or env vars exported) with at least:
  *       ERPNEXT_BASE_URL, ERPNEXT_API_KEY, ERPNEXT_API_SECRET
@@ -50,9 +50,9 @@ const http = axios.create({
  * Custom field definitions.
  *
  * Fields whose fieldtype is "Link" require that `options` resolves to an
- * existing DocType on the target ERPNext instance.  "Rental Contract" is
- * provided by navariltd/utility-billing.  The script checks for that DocType
- * first and aborts with a clear message if it is missing.
+ * existing DocType on the target ERPNext instance.  "Lease" is
+ * provided by PropMS.  The script checks for that DocType first and
+ * aborts with a clear message if it is missing.
  */
 const CUSTOM_FIELDS = [
   // ── Sales Invoice ──────────────────────────────────────────────────────────
@@ -60,7 +60,7 @@ const CUSTOM_FIELDS = [
   { dt: 'Sales Invoice', fieldname: 'custom_property', label: 'Property', fieldtype: 'Data', insert_after: 'custom_unit' },
   {
     dt: 'Sales Invoice', fieldname: 'custom_lease', label: 'Lease',
-    fieldtype: 'Link', options: 'Rental Contract',   // requires utility-billing app
+    fieldtype: 'Link', options: 'Lease',   // requires PropMS app
     insert_after: 'custom_property',
   },
 
@@ -68,7 +68,7 @@ const CUSTOM_FIELDS = [
   { dt: 'Payment Entry', fieldname: 'custom_unit',  label: 'Unit',  fieldtype: 'Data', insert_after: 'party' },
   {
     dt: 'Payment Entry', fieldname: 'custom_lease', label: 'Lease',
-    fieldtype: 'Link', options: 'Rental Contract',   // requires utility-billing app
+    fieldtype: 'Link', options: 'Lease',   // requires PropMS app
     insert_after: 'custom_unit',
   },
 
@@ -123,26 +123,26 @@ async function main() {
   console.log(`\nConnecting to ERPNext at ${BASE_URL} …\n`);
 
   // ── Prerequisite check ────────────────────────────────────────────────────
-  // The custom_lease Link fields point to "Rental Contract".  ERPNext will
+  // The custom_lease Link fields point to "Lease".  ERPNext will
   // refuse to save a Custom Field whose options value is not a valid DocType.
   // Catch this before making any API calls to give the user a clear message.
-  console.log('Checking prerequisite: "Rental Contract" DocType …');
-  const hasRentalContract = await doctypeExists('Rental Contract');
+  console.log('Checking prerequisite: "Lease" DocType …');
+  const hasRentalContract = await doctypeExists('Lease');
 
   if (!hasRentalContract) {
     console.error(
-      '\nERROR: "Rental Contract" DocType not found on this ERPNext instance.\n\n' +
-      'This DocType is provided by the navariltd/utility-billing Frappe app.\n' +
+      '\nERROR: "Lease" DocType not found on this ERPNext instance.\n\n' +
+      'This DocType is provided by the PropMS Frappe app.\n' +
       'Install it first:\n\n' +
-      '  bench get-app https://github.com/navariltd/utility-billing\n' +
-      '  bench --site <your-site> install-app utility-billing\n\n' +
+      '  bench get-app https://github.com/aakvatech/PropMS\n' +
+      '  bench --site <your-site> install-app propms\n\n' +
       'Then re-run this script.\n\n' +
-      'Without "Rental Contract", ERPNext will reject the custom_lease Link\n' +
+      'Without "Lease", ERPNext will reject the custom_lease Link\n' +
       'field with: "Options must be a valid DocType for field lease"\n'
     );
     process.exit(1);
   }
-  console.log('  ✓ "Rental Contract" DocType found.\n');
+  console.log('  ✓ "Lease" DocType found.\n');
 
   // ── Create custom fields ───────────────────────────────────────────────────
   let created = 0;
