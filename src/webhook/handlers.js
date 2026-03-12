@@ -121,6 +121,28 @@ const handlers = {
   },
 
   /**
+   * Visit Scheduled
+   * Notifies the landlord when a Maintenance Visit is created for a tenant's issue.
+   */
+  async 'visit.scheduled'(event) {
+    const { id, tenantName, unit, propertyAddress, purpose, maintenanceDate, completionStatus } =
+      event.data;
+
+    logger.info('Handling visit.scheduled event', { id, unit });
+
+    const landlordMsg =
+      `🔨 Maintenance Visit Scheduled\n\n` +
+      `Visit #: ${id}\n` +
+      `Tenant: ${tenantName} (Unit ${unit})\n` +
+      `Property: ${propertyAddress || unit}\n` +
+      `Purpose: ${purpose || 'Maintenance'}\n` +
+      `Date: ${maintenanceDate}\n` +
+      (completionStatus ? `Status: ${completionStatus}` : '');
+
+    await getTelegram().notifyLandlord(landlordMsg);
+  },
+
+  /**
    * Lease Created – informational alert.
    */
   async 'lease.created'(event) {

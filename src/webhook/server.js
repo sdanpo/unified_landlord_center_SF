@@ -11,16 +11,17 @@
  * that Frappe/ERPNext attaches as the "X-Frappe-Webhook-Signature" header
  * (hex-encoded, computed over the raw request body with the shared secret).
  *
- * ERPNext webhook configuration (6 webhooks to create):
+ * ERPNext webhook configuration (7 webhooks to create):
  *
- *  DocType            Trigger          URL
- *  ─────────────────  ───────────────  ──────────────────────────────────────────
- *  Sales Invoice      on_submit        {BASE_URL}/webhooks/erpnext/invoice-overdue
- *  Payment Entry      on_submit        {BASE_URL}/webhooks/erpnext/payment-received
- *  Maintenance Req.   after_insert     {BASE_URL}/webhooks/erpnext/ticket-created
- *  Maintenance Req.   on_update        {BASE_URL}/webhooks/erpnext/ticket-updated
- *  Rental Contract    on_submit        {BASE_URL}/webhooks/erpnext/contract-submitted
- *  Rental Contract    on_cancel        {BASE_URL}/webhooks/erpnext/contract-cancelled
+ *  DocType              Trigger          URL
+ *  ───────────────────  ───────────────  ──────────────────────────────────────────────
+ *  Sales Invoice        on_submit        {BASE_URL}/webhooks/erpnext/invoice-overdue
+ *  Payment Entry        on_submit        {BASE_URL}/webhooks/erpnext/payment-received
+ *  Issue                after_insert     {BASE_URL}/webhooks/erpnext/ticket-created
+ *  Issue                on_update        {BASE_URL}/webhooks/erpnext/ticket-updated
+ *  Maintenance Visit    after_insert     {BASE_URL}/webhooks/erpnext/visit-scheduled
+ *  Rental Contract      on_submit        {BASE_URL}/webhooks/erpnext/contract-submitted
+ *  Rental Contract      on_cancel        {BASE_URL}/webhooks/erpnext/contract-cancelled
  *
  * For "Sales Invoice / invoice-overdue", set a Condition in ERPNext so it
  * only fires when outstanding_amount > 0 and due_date < today:
@@ -175,11 +176,11 @@ router.post('/erpnext/payment-received', validateSignature, async (req, res) => 
 /**
  * POST /webhooks/erpnext/ticket-created
  *
- * Triggered when a new Maintenance Request (PropMS) is inserted.
+ * Triggered when a new Issue (Support module) is inserted by a tenant.
  *
- * Payload key fields: name, subject, status, priority,
- *   customer / raised_by, customer_name / raised_by_full_name,
- *   custom_unit, custom_property, description
+ * Payload key fields: name, subject, priority,
+ *   customer, customer_name, raised_by, raised_by_full_name,
+ *   custom_unit, custom_property
  */
 router.post('/erpnext/ticket-created', validateSignature, async (req, res) => {
   const body = req.body;
@@ -209,7 +210,7 @@ router.post('/erpnext/ticket-created', validateSignature, async (req, res) => {
 /**
  * POST /webhooks/erpnext/ticket-updated
  *
- * Triggered when a Maintenance Request is updated (status change, vendor notes).
+ * Triggered when an Issue (Support module) is updated (status change, resolution notes).
  *
  * Payload key fields: name, status, custom_unit, resolution / resolution_details
  */
@@ -292,6 +293,42 @@ router.post('/erpnext/contract-cancelled', validateSignature, async (req, res) =
     res.status(200).json({ received: true });
   } catch (err) {
     logger.error('Error processing contract-cancelled webhook', { error: err.message });
+    res.status(500).json({ error: 'Internal processing error' });
+  }
+});
+
+/**
+ * POST /webhooks/erpnext/visit-scheduled
+ *
+ * Triggered when a Maintenance Visit (Maintenance module) is created,
+ * indicating a technician visit has been scheduled for a tenant's issue.
+ *
+ * Payload key fields: name, customer, customer_name, status,
+ *   purpose, maintenance_date, completion_status,
+ *   custom_unit, custom_property
+ */
+router.post('/erpnext/visit-scheduled', validateSignature, async (req, res) => {
+  const body = req.body;
+  logger.info('ERPNext webhook: visit-scheduled', { visit: body?.name, customer: body?.customer });
+
+  try {
+    const event = {
+      type: 'visit.scheduled',
+      data: {
+        id: body.name,
+        tenantName: body.customer_name,
+        unit: body.custom_unit,
+        propertyAddress: body.custom_property,
+        purpose: body.purpose,
+        maintenanceDate: body.maintenance_date,
+        completionStatus: body.completion_status,
+      },
+    };
+
+    await webhookHandlers.handle(event);
+    res.status(200).json({ received: true });
+  } catch (err) {
+    logger.error('Error processing visit-scheduled webhook', { error: err.message });
     res.status(500).json({ error: 'Internal processing error' });
   }
 });
