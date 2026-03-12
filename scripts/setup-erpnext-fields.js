@@ -72,9 +72,9 @@ const CUSTOM_FIELDS = [
     insert_after: 'custom_unit',
   },
 
-  // ── HD Ticket (Helpdesk module) ────────────────────────────────────────────
-  { dt: 'HD Ticket', fieldname: 'custom_unit',     label: 'Unit',     fieldtype: 'Data', insert_after: 'customer' },
-  { dt: 'HD Ticket', fieldname: 'custom_property', label: 'Property', fieldtype: 'Data', insert_after: 'custom_unit' },
+  // ── Issue (ERPNext Support module) ────────────────────────────────────
+  { dt: 'Issue', fieldname: 'custom_unit',     label: 'Unit',     fieldtype: 'Data', insert_after: 'customer' },
+  { dt: 'Issue', fieldname: 'custom_property', label: 'Property', fieldtype: 'Data', insert_after: 'custom_unit' },
 ];
 
 /** Check whether a DocType exists on the ERPNext instance. */

@@ -21,13 +21,13 @@
  *   Sales Invoice     – rent charges and outstanding balances
  *   Payment Entry     – recorded payments
  *   GL Entry          – double-entry general ledger rows
- *   HD Ticket         – maintenance / work orders         (Helpdesk module)
+ *   Issue         – maintenance / work orders         (ERPNext Support module)
  *
  * Custom fields added to standard DocTypes via utility-billing / site config:
  *   Sales Invoice     → custom_unit, custom_property, custom_lease (Link → Lease)
  *   Payment Entry     → custom_unit, custom_lease (Link → Lease)
  *   Customer          → custom_unit, custom_property
- *   HD Ticket         → custom_unit, custom_property
+ *   Issue         → custom_unit, custom_property
  */
 
 const axios = require('axios');
@@ -292,10 +292,10 @@ class ERPNextClient {
     });
   }
 
-  // ─── Maintenance / Work Orders (HD Ticket via Helpdesk module) ────────────
+  // ─── Maintenance / Work Orders (Issue via ERPNext Support module) ────────────
 
   /**
-   * List maintenance tickets (HD Tickets).
+   * List maintenance tickets (Issues).
    * @param {Object} params
    * @param {string} [params.status]     – "open" | "in_progress" | "completed" | "all"
    * @param {string} [params.propertyId] – Filter by custom_property
@@ -304,14 +304,14 @@ class ERPNextClient {
   async getWorkOrders({ status, propertyId, unitId } = {}) {
     const filters = [];
     if (status && status !== 'all') {
-      // HD Ticket statuses: Open, Replied, Resolved, Closed
+      // Issue statuses in ERPNext: Open, Replied, Hold, Resolved, Closed
       const statusMap = { open: 'Open', in_progress: 'Replied', completed: 'Resolved' };
       filters.push(['status', '=', statusMap[status] || status]);
     }
     if (propertyId) filters.push(['custom_property', '=', propertyId]);
     if (unitId) filters.push(['custom_unit', 'like', `%${unitId}%`]);
 
-    return this._list('HD Ticket', {
+    return this._list('Issue', {
       fields: [
         'name', 'subject', 'status', 'priority',
         'customer', 'customer_name',
@@ -323,9 +323,9 @@ class ERPNextClient {
     });
   }
 
-  /** Get a single HD Ticket by name (e.g. "HDT-0001"). */
+  /** Get a single Issue by name (e.g. "ISS-0001"). */
   async getWorkOrder(name) {
-    return this._get('HD Ticket', name);
+    return this._get('Issue', name);
   }
 
   /**
@@ -339,7 +339,7 @@ class ERPNextClient {
       .replace('T', ' ')
       .split('.')[0]; // "YYYY-MM-DD HH:MM:SS" – ERPNext datetime format
 
-    return this._list('HD Ticket', {
+    return this._list('Issue', {
       fields: [
         'name', 'subject', 'status', 'priority',
         'customer', 'customer_name',
@@ -355,12 +355,12 @@ class ERPNextClient {
   }
 
   /**
-   * Update an HD Ticket (e.g. change status, add resolution notes).
-   * @param {string} name     – ERPNext ticket name (e.g. "HDT-0001")
+   * Update an Issue (e.g. change status, add resolution notes).
+   * @param {string} name     – ERPNext issue name (e.g. "ISS-0001")
    * @param {Object} payload  – Fields to update (e.g. { status: "Resolved" })
    */
   async updateWorkOrder(name, payload) {
-    return this._put('HD Ticket', name, payload);
+    return this._put('Issue', name, payload);
   }
 }
 

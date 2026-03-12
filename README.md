@@ -176,8 +176,8 @@ any that already exist.
 | Sales Invoice | `custom_lease` | Link → `Lease` | Requires PropMS app |
 | Payment Entry | `custom_unit` | Data | |
 | Payment Entry | `custom_lease` | Link → `Lease` | Requires PropMS app |
-| HD Ticket | `custom_unit` | Data | |
-| HD Ticket | `custom_property` | Data | |
+| Issue | `custom_unit` | Data | |
+| Issue | `custom_property` | Data | |
 
 ### 5. Configure webhooks in ERPNext
 
@@ -188,8 +188,8 @@ In ERPNext → Integrations → Webhooks, create **6 webhooks** all using
 |---|---|---|
 | Sales Invoice | `on_submit` | `{WEBHOOK_BASE_URL}/webhooks/erpnext/invoice-overdue` |
 | Payment Entry | `on_submit` | `{WEBHOOK_BASE_URL}/webhooks/erpnext/payment-received` |
-| Maintenance Request | `after_insert` | `{WEBHOOK_BASE_URL}/webhooks/erpnext/ticket-created` |
-| Maintenance Request | `on_update` | `{WEBHOOK_BASE_URL}/webhooks/erpnext/ticket-updated` |
+| Issue | `after_insert` | `{WEBHOOK_BASE_URL}/webhooks/erpnext/ticket-created` |
+| Issue | `on_update` | `{WEBHOOK_BASE_URL}/webhooks/erpnext/ticket-updated` |
 | Lease | `on_submit` | `{WEBHOOK_BASE_URL}/webhooks/erpnext/contract-submitted` |
 | Lease | `on_cancel` | `{WEBHOOK_BASE_URL}/webhooks/erpnext/contract-cancelled` |
 
@@ -225,7 +225,7 @@ no-code visual editor is preferred.
 | Flow file | Trigger | Actions |
 |---|---|---|
 | `rent-overdue-flow.json` | ERPNext `invoice-overdue` webhook | SMS to tenant (Twilio) + Telegram to landlord |
-| `maintenance-alert-flow.json` | Daily 9:00 AM schedule | Query stale HD Tickets → Telegram alert |
+| `maintenance-alert-flow.json` | Daily 9:00 AM schedule | Query stale Issues → Telegram alert |
 | `weekly-report-flow.json` | Every Friday 17:00 | Aggregate ledger + balances + WOs + leases → Telegram report |
 
 To import: Make.com → Scenarios → Import Blueprint → paste the JSON.
@@ -245,7 +245,7 @@ independently of Make.com:
 | Job | Schedule | Action |
 |---|---|---|
 | Overdue rent sweep | Daily 08:00 PST | Query overdue Sales Invoices → bulk SMS (Twilio) + Telegram summary |
-| Stale work-order alert | Daily 09:00 PST | HD Tickets open > 48 h → Telegram alert |
+| Stale work-order alert | Daily 09:00 PST | Issues open > 48 h → Telegram alert |
 | Weekly portfolio report | Friday 17:00 PST | Cash flow + delinquencies + WOs + expiring leases → Telegram |
 
 ---

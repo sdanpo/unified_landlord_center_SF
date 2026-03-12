@@ -1,7 +1,7 @@
 {
   "_meta": {
     "title": "Stale Maintenance Ticket – Proactive Landlord Alert",
-    "description": "Runs daily at 9:00 AM. Queries ERPNext for all HD Tickets (Maintenance Requests) that have been in Open or Replied status for more than 48 hours. Sends a consolidated Telegram alert to the landlord listing every stale ticket.",
+    "description": "Runs daily at 9:00 AM. Queries ERPNext for all Issues (Maintenance Requests) that have been in Open or Replied status for more than 48 hours. Sends a consolidated Telegram alert to the landlord listing every stale ticket.",
     "version": "2.0.0",
     "platform": "Make.com (formerly Integromat)",
     "tier_required": "Pro ($16/month)",
@@ -22,10 +22,10 @@
       {
         "id": 1,
         "type": "http",
-        "name": "1. Query ERPNext for Stale HD Tickets (> 48 h)",
+        "name": "1. Query ERPNext for Stale Issues (> 48 h)",
         "config": {
           "method": "GET",
-          "url": "{{env.ERPNEXT_BASE_URL}}/api/resource/HD%20Ticket",
+          "url": "{{env.ERPNEXT_BASE_URL}}/api/resource/Issue",
           "headers": [
             { "name": "Authorization", "value": "token {{env.ERPNEXT_API_KEY}}:{{env.ERPNEXT_API_SECRET}}" },
             { "name": "Accept",        "value": "application/json" }
