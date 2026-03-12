@@ -16,7 +16,7 @@
  * DocTypes used:
  *   Property          – a building / complex              (utility-billing)
  *   Property Unit     – an individual rentable space      (utility-billing)
- *   Rental Contract   – a lease agreement                 (utility-billing)
+ *   Lease             – a lease agreement                 (PropMS)
  *   Customer          – tenant contacts (customer_group = "Tenant")
  *   Sales Invoice     – rent charges and outstanding balances
  *   Payment Entry     – recorded payments
@@ -24,8 +24,8 @@
  *   HD Ticket         – maintenance / work orders         (Helpdesk module)
  *
  * Custom fields added to standard DocTypes via utility-billing / site config:
- *   Sales Invoice     → custom_unit, custom_property, custom_lease
- *   Payment Entry     → custom_unit, custom_lease
+ *   Sales Invoice     → custom_unit, custom_property, custom_lease (Link → Lease)
+ *   Payment Entry     → custom_unit, custom_lease (Link → Lease)
  *   Customer          → custom_unit, custom_property
  *   HD Ticket         → custom_unit, custom_property
  */
@@ -151,7 +151,7 @@ class ERPNextClient {
   // ─── Leases & Tenants ─────────────────────────────────────────────────────
 
   /**
-   * List Rental Contracts (leases).
+   * List Leases (leases).
    * @param {Object} params
    * @param {string} [params.status]  – "active" | "expired" | "future" | "all"
    * @param {string} [params.unit]    – Partial unit name to filter by
@@ -164,7 +164,7 @@ class ERPNextClient {
     }
     if (unit) filters.push(['property_unit', 'like', `%${unit}%`]);
 
-    return this._list('Rental Contract', {
+    return this._list('Lease', {
       fields: [
         'name', 'tenant', 'tenant_name', 'property_unit', 'property',
         'start_date', 'end_date', 'monthly_rent', 'status',
@@ -174,9 +174,9 @@ class ERPNextClient {
     });
   }
 
-  /** Get a single Rental Contract by name. */
+  /** Get a single Lease by name. */
   async getLease(name) {
-    return this._get('Rental Contract', name);
+    return this._get('Lease', name);
   }
 
   /**
@@ -234,7 +234,7 @@ class ERPNextClient {
   }
 
   /**
-   * Get all submitted Sales Invoices tied to a specific Rental Contract.
+   * Get all submitted Sales Invoices tied to a specific Lease.
    * Used for per-lease ledger queries.
    */
   async getLeaseLedger(leaseId) {
