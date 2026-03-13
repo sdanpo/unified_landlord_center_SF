@@ -21,7 +21,15 @@ let bot = null;
 function createBot() {
   if (bot) return bot;
 
-  bot = new TelegramBot(config.telegram.botToken, { polling: true });
+  // node-telegram-bot-api uses @cypress/request-promise internally.
+  // Pass the system HTTPS proxy so polling works inside proxied containers.
+  const proxyUrl = process.env.HTTPS_PROXY || process.env.https_proxy;
+  const botOptions = {
+    polling: true,
+    ...(proxyUrl && { request: { proxy: proxyUrl } }),
+  };
+
+  bot = new TelegramBot(config.telegram.botToken, botOptions);
 
   logger.info('Telegram bot started (long-polling)');
 
