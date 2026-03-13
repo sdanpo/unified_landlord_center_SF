@@ -22,7 +22,22 @@ const { config } = require('../config');
 const tools = require('./functions');
 const pmsClient = require('../api/index');
 
-const openai = new OpenAI({ apiKey: config.openai.apiKey });
+// Honour system proxy env-vars so OpenAI requests go through the egress gateway.
+function buildOpenAIAgent() {
+  const proxyUrl = process.env.HTTPS_PROXY || process.env.https_proxy;
+  if (!proxyUrl) return undefined;
+  try {
+    const { HttpsProxyAgent } = require('https-proxy-agent');
+    return new HttpsProxyAgent(proxyUrl);
+  } catch (_) {
+    return undefined;
+  }
+}
+
+const openai = new OpenAI({
+  apiKey: config.openai.apiKey,
+  httpAgent: buildOpenAIAgent(),
+});
 
 const SYSTEM_PROMPT = `You are an intelligent property management assistant for a residential real estate landlord.
 You have real-time access to the property management database and can answer questions about:
