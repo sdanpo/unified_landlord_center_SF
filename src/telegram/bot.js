@@ -31,7 +31,23 @@ function createBot() {
 
   bot = new TelegramBot(config.telegram.botToken, botOptions);
 
-  logger.info('Telegram bot started (long-polling)');
+  logger.info('Telegram bot started (long-polling)', {
+    allowedUserIds: [...config.telegram.allowedUserIds],
+    allowedGroupIds: [...config.telegram.allowedGroupIds],
+  });
+
+  // Debug: log every raw update so misconfiguration is visible in logs.
+  // Runs BEFORE the guard so even blocked messages appear.
+  bot.on('message', (msg) => {
+    logger.debug('Telegram raw message received', {
+      chatId: msg.chat?.id,
+      chatType: msg.chat?.type,
+      chatTitle: msg.chat?.title,
+      fromId: msg.from?.id,
+      fromUsername: msg.from?.username,
+      text: msg.text?.slice(0, 60),
+    });
+  });
 
   // ── Commands (whitelisted) ─────────────────────────────────────────────────
 
