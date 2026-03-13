@@ -15,6 +15,54 @@ const { guard } = require('./security');
 const { handleStart, handleHelp, handleClear, handleMessage } = require('./handlers');
 
 let bot = null;
+let botInfo = null; // populated by getMe() on startup
+
+// ─── Group-mention filter ─────────────────────────────────────────────────────
+
+/**
+ * Returns true when a message should be processed.
+ *
+ * Private chats  → always respond.
+ * Group chats    → only respond when the bot is explicitly addressed:
+ *                    • @mention in the message text/entities, OR
+ *                    • a direct reply to one of the bot's own messages.
+ *
+ * Also returns the message text with the @mention prefix stripped so the AI
+ * receives clean input ("@LandlordBot what is the rent status?" → "what is
+ * the rent status?").
+ *
+ * @returns {{ addressed: boolean, text: string }}
+ */
+function parseGroupMessage(msg) {
+  const isGroup = ['group', 'supergroup'].includes(msg.chat?.type);
+  const text = msg.text || '';
+
+  if (!isGroup) {
+    return { addressed: true, text };
+  }
+
+  // Direct reply to the bot's own message
+  if (botInfo && msg.reply_to_message?.from?.id === botInfo.id) {
+    return { addressed: true, text };
+  }
+
+  // @mention anywhere in the message (Telegram marks these in msg.entities)
+  const mentioned = (msg.entities || []).some(
+    (e) => e.type === 'mention' && text.slice(e.offset, e.offset + e.length).toLowerCase()
+      === `@${(botInfo?.username || '').toLowerCase()}`
+  );
+
+  if (!mentioned) {
+    return { addressed: false, text };
+  }
+
+  // Strip the @mention so the AI gets clean input
+  const cleanText = text
+    .replace(new RegExp(`@${botInfo?.username}\\s*`, 'i'), '')
+    .trim();
+
+  return { addressed: true, text: cleanText };
+}
 
 // ─── Bot factory ─────────────────────────────────────────────────────────────
 
@@ -31,9 +79,17 @@ function createBot() {
 
   bot = new TelegramBot(config.telegram.botToken, botOptions);
 
-  logger.info('Telegram bot started (long-polling)', {
-    allowedUserIds: [...config.telegram.allowedUserIds],
-    allowedGroupIds: [...config.telegram.allowedGroupIds],
+  // Fetch bot identity so we can detect @mentions in groups
+  bot.getMe().then((info) => {
+    botInfo = info;
+    logger.info('Telegram bot started (long-polling)', {
+      username: botInfo.username,
+      id: botInfo.id,
+      allowedUserIds: [...config.telegram.allowedUserIds],
+      allowedGroupIds: [...config.telegram.allowedGroupIds],
+    });
+  }).catch((err) => {
+    logger.error('Telegram getMe() failed', { error: err.message });
   });
 
   // Debug: log every raw update so misconfiguration is visible in logs.
@@ -67,7 +123,12 @@ function createBot() {
 
   bot.on('message', guard(async (msg) => {
     if (msg.text?.startsWith('/')) return;
-    await handleMessage(bot, msg);
+
+    const { addressed, text } = parseGroupMessage(msg);
+    if (!addressed) return; // group message not directed at the bot
+
+    // Pass clean text (mention stripped) to the AI handler
+    await handleMessage(bot, { ...msg, text });
   }));
 
   // ── Error handling ─────────────────────────────────────────────────────────
