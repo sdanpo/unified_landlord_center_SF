@@ -157,17 +157,18 @@ class ERPNextClient {
    * @param {string} [params.unit]    – Partial unit name to filter by
    */
   async getLeases({ status, unit } = {}) {
-    const filters = [];
-    if (status && status !== 'all') {
-      const statusMap = { active: 'Active', expired: 'Expired', future: 'Draft' };
-      filters.push(['status', '=', statusMap[status] || status]);
-    }
-    if (unit) filters.push(['property_unit', 'like', `%${unit}%`]);
-
-    return this._list('Lease', {
+    const leases = await this._list('Lease', {
       fields: ['*'],
-      filters,
       orderBy: 'start_date desc',
+    });
+
+    const statusMap = { active: 'Active', expired: 'Expired', future: 'Draft' };
+    const wantedStatus = statusMap[status] || status;
+
+    return leases.filter(l => {
+      if (status && status !== 'all' && l.status !== wantedStatus) return false;
+      if (unit && !(l.property_unit || '').toLowerCase().includes(unit.toLowerCase())) return false;
+      return true;
     });
   }
 
