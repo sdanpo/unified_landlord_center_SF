@@ -1,38 +1,44 @@
 'use strict';
 
 /**
- * ERPNext REST API client (with navariltd/utility-billing app installed).
+ * ERPNext REST API client for PropMS (Property Management System).
  *
- * Auth: token {apiKey}:{apiSecret} via Authorization header.
+ * PropMS DocType map (confirmed against live lutra.k.frappe.cloud):
+ *   Property         – each rentable unit / property (status: Available | On Lease | ...)
+ *   Lease            – lease agreement
+ *                      key fields: property, lease_customer, lease_status,
+ *                                  start_date, end_date, frequency, notice_period
+ *                      lease_status values: Draft | Active | Closed | Vacating |
+ *                                           Not Materialized | Renewal to Previous Lease
+ *   Customer         – tenant contacts (customer_group = "Tenant")
+ *   Sales Invoice    – rent charges / outstanding balances
+ *                      custom fields: custom_unit, custom_property, custom_lease
+ *   Payment Entry    – recorded payments
+ *                      custom fields: custom_unit, custom_lease
+ *   GL Entry         – general ledger rows
+ *   HD Ticket        – maintenance / work orders (Helpdesk module)
+ *                      Status (Link): Open | Replied | Resolved | Closed
+ *                      Priority (Link): Urgent | High | Medium | Low
  *
- * All resource endpoints follow the pattern:
- *   GET  /api/resource/{DocType}             – list records
- *   GET  /api/resource/{DocType}/{name}      – get single record
- *   PUT  /api/resource/{DocType}/{name}      – update record
- *
- * Filters are JSON arrays of ["field", "operator", "value"] triplets.
- * Fields are JSON arrays of field names; ["*"] returns all fields.
- *
- * DocTypes used:
- *   Property          – a building / complex              (utility-billing)
- *   Property Unit     – an individual rentable space      (utility-billing)
- *   Lease             – a lease agreement                 (PropMS)
- *   Customer          – tenant contacts (customer_group = "Tenant")
- *   Sales Invoice     – rent charges and outstanding balances
- *   Payment Entry     – recorded payments
- *   GL Entry          – double-entry general ledger rows
- *   HD Ticket         – maintenance / work orders         (Helpdesk module)
- *
- * Custom fields added to standard DocTypes via utility-billing / site config:
- *   Sales Invoice     → custom_unit, custom_property, custom_lease (Link → Lease)
- *   Payment Entry     → custom_unit, custom_lease (Link → Lease)
- *   Customer          → custom_unit, custom_property
- *   HD Ticket         → custom_unit, custom_property
+ * Auth: "token {apiKey}:{apiSecret}" via Authorization header.
  */
 
 const axios = require('axios');
 const logger = require('../logger');
 const { config } = require('../config');
+
+// Honour system proxy env-vars (HTTPS_PROXY / https_proxy) so Node.js
+// requests go through the same egress gateway that curl uses.
+function buildHttpsAgent() {
+  const proxyUrl = process.env.HTTPS_PROXY || process.env.https_proxy;
+  if (!proxyUrl) return undefined;
+  try {
+    const { HttpsProxyAgent } = require('https-proxy-agent');
+    return new HttpsProxyAgent(proxyUrl);
+  } catch (_) {
+    return undefined;
+  }
+}
 
 class ERPNextClient {
   constructor({ baseUrl, apiKey, apiSecret } = {}) {
@@ -43,12 +49,13 @@ class ERPNextClient {
     this.http = axios.create({
       baseURL: base,
       headers: {
-        // ERPNext token-based auth: "token api_key:api_secret"
         Authorization: `token ${key}:${secret}`,
         'Content-Type': 'application/json',
         Accept: 'application/json',
       },
-      timeout: 15_000,
+      timeout: 20_000,
+      httpsAgent: buildHttpsAgent(),
+      proxy: false,  // disable axios's built-in proxy so the agent handles it
     });
 
     this.http.interceptors.response.use(
@@ -67,7 +74,6 @@ class ERPNextClient {
 
   // ─── Internal helpers ──────────────────────────────────────────────────────
 
-  /** Build the resource URL for a DocType, URL-encoding spaces in the name. */
   _resourcePath(doctype, name) {
     const dt = encodeURIComponent(doctype);
     return name
@@ -75,15 +81,6 @@ class ERPNextClient {
       : `/api/resource/${dt}`;
   }
 
-  /**
-   * Fetch a list of records.
-   * @param {string}   doctype        – ERPNext DocType name
-   * @param {string[]} fields         – Fields to return
-   * @param {Array[]}  filters        – [field, op, value] filter triplets
-   * @param {number}   limit          – Max records to return (default 500)
-   * @param {string}   [orderBy]      – e.g. "creation desc"
-   * @returns {Array}
-   */
   async _list(doctype, { fields = ['*'], filters = [], limit = 500, orderBy } = {}) {
     const params = {
       fields: JSON.stringify(fields),
@@ -96,78 +93,89 @@ class ERPNextClient {
     return data.data || [];
   }
 
-  /** Fetch a single document by its name (primary key). */
   async _get(doctype, name) {
     const { data } = await this.http.get(this._resourcePath(doctype, name));
     return data.data;
   }
 
-  /** Update a document. ERPNext uses PUT for document updates. */
   async _put(doctype, name, payload) {
     const { data } = await this.http.put(this._resourcePath(doctype, name), payload);
     return data.data;
   }
 
-  // ─── Properties & Units ───────────────────────────────────────────────────
+  async _post(doctype, payload) {
+    const { data } = await this.http.post(this._resourcePath(doctype), payload);
+    return data.data;
+  }
 
-  /** List all properties in the portfolio. */
+  // ─── Properties ───────────────────────────────────────────────────────────
+  // In PropMS each Property record IS the rentable unit.
+
+  /** List all properties (units) in the portfolio. */
   async getProperties() {
     return this._list('Property', {
-      fields: ['name', 'property_name', 'address', 'total_units'],
-      orderBy: 'property_name asc',
+      fields: ['name', 'name1', 'status', 'rent', 'bedroom', 'company', 'cost_center'],
+      orderBy: 'name1 asc',
     });
   }
 
-  /** Get a single property by its ERPNext name (e.g. "PROP-0001"). */
+  /** Get a single Property by its ERPNext name. */
   async getProperty(name) {
     return this._get('Property', name);
   }
 
-  /** List all units, optionally filtered by property. */
+  /**
+   * List properties/units, optionally under a parent property.
+   * @param {Object} [params]
+   * @param {string} [params.propertyId]  – parent_property filter
+   */
   async getUnits({ propertyId } = {}) {
-    const filters = [];
-    if (propertyId) filters.push(['property', '=', propertyId]);
-    return this._list('Property Unit', {
-      fields: ['name', 'unit_name', 'property', 'status', 'floor', 'rent_amount'],
+    const filters = propertyId ? [['parent_property', '=', propertyId]] : [];
+    return this._list('Property', {
+      fields: ['name', 'name1', 'status', 'rent', 'bedroom'],
       filters,
-      orderBy: 'unit_name asc',
+      orderBy: 'name1 asc',
     });
   }
 
-  /** Get a single unit by ERPNext name. */
-  async getUnit(name) {
-    return this._get('Property Unit', name);
-  }
-
-  /** Return all units with status "Vacant". */
+  /** Return all properties with status "Available" (vacant). */
   async getVacantUnits() {
-    return this._list('Property Unit', {
-      fields: ['name', 'unit_name', 'property', 'floor', 'rent_amount'],
-      filters: [['status', '=', 'Vacant']],
-      orderBy: 'unit_name asc',
+    return this._list('Property', {
+      fields: ['name', 'name1', 'status', 'rent', 'bedroom'],
+      filters: [['status', '=', 'Available']],
+      orderBy: 'name1 asc',
     });
   }
 
-  // ─── Leases & Tenants ─────────────────────────────────────────────────────
+  /** Get a single property by name – alias for getProperty. */
+  async getUnit(name) {
+    return this._get('Property', name);
+  }
+
+  // ─── Leases ───────────────────────────────────────────────────────────────
 
   /**
-   * List Leases (leases).
-   * @param {Object} params
-   * @param {string} [params.status]  – "active" | "expired" | "future" | "all"
-   * @param {string} [params.unit]    – Partial unit name to filter by
+   * List Leases with optional client-side filtering.
+   * @param {Object} [params]
+   * @param {string} [params.status]  – "active"|"expired"|"future"|"all"
+   * @param {string} [params.unit]    – partial property name match
    */
   async getLeases({ status, unit } = {}) {
+    // Frappe v15 restricts fields in list-query filters on Lease → filter client-side.
     const leases = await this._list('Lease', {
       fields: ['*'],
       orderBy: 'start_date desc',
     });
 
-    const statusMap = { active: 'Active', expired: 'Expired', future: 'Draft' };
+    const statusMap = { active: 'Active', expired: 'Closed', future: 'Draft' };
     const wantedStatus = statusMap[status] || status;
 
     return leases.filter(l => {
-      if (status && status !== 'all' && l.status !== wantedStatus) return false;
-      if (unit && !(l.property_unit || '').toLowerCase().includes(unit.toLowerCase())) return false;
+      if (status && status !== 'all' && l.lease_status !== wantedStatus) return false;
+      if (unit) {
+        const prop = (l.property || '').toLowerCase();
+        if (!prop.includes(unit.toLowerCase())) return false;
+      }
       return true;
     });
   }
@@ -177,24 +185,27 @@ class ERPNextClient {
     return this._get('Lease', name);
   }
 
+  // ─── Tenants ──────────────────────────────────────────────────────────────
+
   /**
-   * List tenants (Customers with customer_group = "Tenant").
-   * @param {Object} params
-   * @param {string} [params.name]  – Partial name search
-   * @param {string} [params.unit]  – Filter by custom_unit field
+   * List Customers in the "Tenant" customer group.
+   * @param {Object} [params]
+   * @param {string} [params.name]  – partial customer_name match
+   * @param {string} [params.unit]  – filter by custom_unit
    */
   async getTenants({ name, unit } = {}) {
-    const filters = [['customer_group', '=', 'Tenant']];
-    if (name) filters.push(['customer_name', 'like', `%${name}%`]);
-    if (unit) filters.push(['custom_unit', 'like', `%${unit}%`]);
-
-    return this._list('Customer', {
-      fields: [
-        'name', 'customer_name', 'mobile_no', 'email_id',
-        'custom_unit', 'custom_property',
-      ],
-      filters,
+    // Frappe v15 rejects custom and restricted fields in list-query filters/fields.
+    // Fetch all customers with wildcard fields and filter client-side.
+    const all = await this._list('Customer', {
+      fields: ['*'],
       orderBy: 'customer_name asc',
+    });
+
+    return all.filter(t => {
+      if ((t.customer_group || '').toLowerCase() !== 'tenant') return false;
+      if (name && !t.customer_name.toLowerCase().includes(name.toLowerCase())) return false;
+      if (unit && !(t.custom_unit || '').toLowerCase().includes(unit.toLowerCase())) return false;
+      return true;
     });
   }
 
@@ -206,15 +217,14 @@ class ERPNextClient {
   // ─── Financials ───────────────────────────────────────────────────────────
 
   /**
-   * Return all submitted Sales Invoices with an outstanding balance past due.
-   * The caller receives the raw invoice list; the AI formats it for display.
+   * Return submitted Sales Invoices with outstanding balance past due.
    * @param {Object} [params]
-   * @param {string} [params.propertyId]  – Filter by custom_property
+   * @param {string} [params.propertyId]  – filter by custom_property
    */
   async getOutstandingBalances({ propertyId } = {}) {
     const today = new Date().toISOString().split('T')[0];
     const filters = [
-      ['docstatus', '=', 1],             // submitted invoices only
+      ['docstatus', '=', 1],
       ['outstanding_amount', '>', 0],
       ['due_date', '<', today],
     ];
@@ -231,10 +241,7 @@ class ERPNextClient {
     });
   }
 
-  /**
-   * Get all submitted Sales Invoices tied to a specific Lease.
-   * Used for per-lease ledger queries.
-   */
+  /** Get all submitted Sales Invoices for a specific Lease. */
   async getLeaseLedger(leaseId) {
     return this._list('Sales Invoice', {
       fields: ['name', 'posting_date', 'grand_total', 'outstanding_amount', 'status'],
@@ -248,8 +255,7 @@ class ERPNextClient {
 
   /**
    * Retrieve GL Entry rows for a date range.
-   * Used for weekly financial summary reports.
-   * @param {Object} params
+   * @param {Object} [params]
    * @param {string} [params.startDate]  – YYYY-MM-DD
    * @param {string} [params.endDate]    – YYYY-MM-DD
    */
@@ -270,7 +276,7 @@ class ERPNextClient {
 
   /**
    * Retrieve submitted Payment Entries for a date range.
-   * @param {Object} params
+   * @param {Object} [params]
    * @param {string} [params.startDate]  – YYYY-MM-DD
    * @param {string} [params.endDate]    – YYYY-MM-DD
    */
@@ -290,72 +296,72 @@ class ERPNextClient {
     });
   }
 
-  // ─── Maintenance / Work Orders (HD Ticket via Helpdesk module) ────────────
+  // ─── Maintenance / Work Orders (HD Ticket) ────────────────────────────────
 
   /**
-   * List maintenance tickets (HD Tickets).
-   * @param {Object} params
-   * @param {string} [params.status]     – "open" | "in_progress" | "completed" | "all"
-   * @param {string} [params.propertyId] – Filter by custom_property
-   * @param {string} [params.unitId]     – Partial unit name filter
+   * List maintenance tickets.
+   * @param {Object} [params]
+   * @param {string} [params.status]     – "open"|"in_progress"|"completed"|"all"
+   * @param {string} [params.propertyId] – filter by customer field (property/tenant)
+   * @param {string} [params.unitId]     – partial subject match
    */
   async getWorkOrders({ status, propertyId, unitId } = {}) {
-    const filters = [];
-    if (status && status !== 'all') {
-      // HD Ticket statuses: Open, Replied, Resolved, Closed
-      const statusMap = { open: 'Open', in_progress: 'Replied', completed: 'Resolved' };
-      filters.push(['status', '=', statusMap[status] || status]);
-    }
-    if (propertyId) filters.push(['custom_property', '=', propertyId]);
-    if (unitId) filters.push(['custom_unit', 'like', `%${unitId}%`]);
-
-    return this._list('HD Ticket', {
+    // Frappe v15 rejects status/customer/subject as filter fields on HD Ticket.
+    // Fetch all tickets and filter client-side.
+    const all = await this._list('HD Ticket', {
       fields: [
         'name', 'subject', 'status', 'priority',
-        'customer', 'customer_name',
-        'custom_unit', 'custom_property',
+        'customer', 'raised_by',
         'description', 'creation', 'modified',
       ],
-      filters,
       orderBy: 'creation desc',
+    });
+
+    const statusMap = { open: 'Open', in_progress: 'Replied', completed: 'Resolved' };
+    const wantedStatus = statusMap[status] || status;
+
+    return all.filter(t => {
+      if (status && status !== 'all' && t.status !== wantedStatus) return false;
+      if (propertyId && t.customer !== propertyId) return false;
+      if (unitId && !(t.subject || '').toLowerCase().includes(unitId.toLowerCase())) return false;
+      return true;
     });
   }
 
-  /** Get a single HD Ticket by name (e.g. "HDT-0001"). */
+  /** Get a single HD Ticket by name. */
   async getWorkOrder(name) {
     return this._get('HD Ticket', name);
   }
 
   /**
    * Return open/in-progress tickets older than `ageHours` hours.
-   * Used by the proactive maintenance-alert scheduler.
-   * @param {number} ageHours  – Tickets created more than this many hours ago
+   * @param {number} [ageHours=48]
    */
   async getStaleWorkOrders(ageHours = 48) {
-    const cutoff = new Date(Date.now() - ageHours * 60 * 60 * 1000)
-      .toISOString()
-      .replace('T', ' ')
-      .split('.')[0]; // "YYYY-MM-DD HH:MM:SS" – ERPNext datetime format
+    const cutoffMs = Date.now() - ageHours * 60 * 60 * 1000;
 
-    return this._list('HD Ticket', {
+    // Frappe v15 rejects status/creation as filter fields on HD Ticket.
+    // Fetch all tickets and filter client-side by age and open status.
+    const all = await this._list('HD Ticket', {
       fields: [
         'name', 'subject', 'status', 'priority',
-        'customer', 'customer_name',
-        'custom_unit', 'custom_property',
+        'customer', 'raised_by',
         'description', 'creation',
       ],
-      filters: [
-        ['status', 'in', ['Open', 'Replied']],
-        ['creation', '<', cutoff],
-      ],
       orderBy: 'creation asc',
+    });
+
+    return all.filter(t => {
+      if (!['Open', 'Replied'].includes(t.status)) return false;
+      const createdMs = new Date(t.creation).getTime();
+      return createdMs < cutoffMs;
     });
   }
 
   /**
-   * Update an HD Ticket (e.g. change status, add resolution notes).
-   * @param {string} name     – ERPNext ticket name (e.g. "HDT-0001")
-   * @param {Object} payload  – Fields to update (e.g. { status: "Resolved" })
+   * Update an HD Ticket.
+   * @param {string} name
+   * @param {Object} payload
    */
   async updateWorkOrder(name, payload) {
     return this._put('HD Ticket', name, payload);
