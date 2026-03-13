@@ -37,7 +37,8 @@ const config = {
   },
 
   webhook: {
-    port: parseInt(process.env.WEBHOOK_PORT || '3000', 10),
+    // Railway injects PORT; fall back to WEBHOOK_PORT for local dev
+    port: parseInt(process.env.PORT || process.env.WEBHOOK_PORT || '3000', 10),
     secret: process.env.WEBHOOK_SECRET || '',
     baseUrl: process.env.WEBHOOK_BASE_URL || 'http://localhost:3000',
   },
