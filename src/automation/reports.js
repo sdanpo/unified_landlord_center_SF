@@ -198,7 +198,7 @@ function formatTelegramReport({ startDate, endDate, ledger, outstanding, workOrd
       activeLeasesTotal: active.length,
       expiringWithin60Days: soon.length,
       expiring: soon.map((l) => ({
-        tenantName: l.tenantName || l.TenantName || l.tenant_name,
+        tenantName: l.tenantName || l.TenantName || l.customer_name || l.tenant_name,
         unit: l.unitName || l.UnitName || l.property_unit,
         endDate: l.endDate || l.EndDate || l.end_date || l.leaseToDate,
       })),
@@ -210,7 +210,7 @@ function formatTelegramReport({ startDate, endDate, ledger, outstanding, workOrd
     } else {
       soon.forEach((l) => {
         lines.push(
-          `• ${l.tenantName || l.TenantName || l.tenant_name || 'Unknown'} (${l.unitName || l.UnitName || l.property_unit}): ` +
+          `• ${l.tenantName || l.TenantName || l.customer_name || l.tenant_name || 'Unknown'} (${l.unitName || l.UnitName || l.property_unit}): ` +
             `expires ${l.endDate || l.EndDate || l.end_date || l.leaseToDate}`
         );
       });

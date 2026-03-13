@@ -164,9 +164,9 @@ class ERPNextClient {
     }
     if (unit) filters.push(['property_unit', 'like', `%${unit}%`]);
 
-    return this._list('Lease', {
+    return this._list('Rental Contract', {
       fields: [
-        'name', 'tenant', 'tenant_name', 'property_unit', 'property',
+        'name', 'customer', 'customer_name', 'property_unit', 'property',
         'start_date', 'end_date', 'monthly_rent', 'status',
       ],
       filters,
@@ -176,7 +176,7 @@ class ERPNextClient {
 
   /** Get a single Lease by name. */
   async getLease(name) {
-    return this._get('Lease', name);
+    return this._get('Rental Contract', name);
   }
 
   /**
