@@ -165,10 +165,7 @@ class ERPNextClient {
     if (unit) filters.push(['property_unit', 'like', `%${unit}%`]);
 
     return this._list('Lease', {
-      fields: [
-        'name', 'customer', 'customer_name', 'property_unit', 'property',
-        'start_date', 'end_date', 'monthly_rent', 'status',
-      ],
+      fields: ['*'],
       filters,
       orderBy: 'start_date desc',
     });
