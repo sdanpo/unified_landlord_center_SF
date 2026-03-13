@@ -81,16 +81,21 @@ async function notifyLandlord(text) {
     return;
   }
 
+  const recipients = [
+    ...config.telegram.allowedUserIds,
+    ...config.telegram.allowedGroupIds,
+  ];
+
   const results = await Promise.allSettled(
-    [...config.telegram.allowedUserIds].map((userId) =>
-      bot.sendMessage(userId, text, { parse_mode: 'Markdown' })
+    recipients.map((id) =>
+      bot.sendMessage(id, text, { parse_mode: 'Markdown' })
     )
   );
 
   results.forEach((r, i) => {
     if (r.status === 'rejected') {
       logger.error('Failed to deliver Telegram notification to landlord', {
-        userId: [...config.telegram.allowedUserIds][i],
+        recipientId: recipients[i],
         error: r.reason?.message,
       });
     }
