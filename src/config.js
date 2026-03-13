@@ -18,9 +18,17 @@ const config = {
 
   telegram: {
     botToken: process.env.TELEGRAM_BOT_TOKEN || '',
-    // Parse the comma-separated list of numeric IDs into a Set for O(1) lookup
+    // Individual user IDs (positive integers)
     allowedUserIds: new Set(
       (process.env.TELEGRAM_ALLOWED_USER_IDS || '')
+        .split(',')
+        .map((id) => id.trim())
+        .filter(Boolean)
+        .map(Number)
+    ),
+    // Group / supergroup chat IDs (negative integers, e.g. -1001234567890)
+    allowedGroupIds: new Set(
+      (process.env.TELEGRAM_ALLOWED_GROUP_IDS || '')
         .split(',')
         .map((id) => id.trim())
         .filter(Boolean)

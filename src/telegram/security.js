@@ -16,17 +16,22 @@ const logger = require('../logger');
 const { config } = require('../config');
 
 /**
- * Returns true if the Telegram userId is in the whitelist.
- * @param {number|string} userId – msg.from.id from the Telegram update
+ * Returns true if the sender or the chat they're writing in is whitelisted.
+ * Accepts individual user IDs (positive) and group/supergroup chat IDs (negative).
+ *
+ * @param {number|string} userId  – msg.from.id
+ * @param {number|string} chatId  – msg.chat.id
  */
-function isAuthorized(userId) {
-  return config.telegram.allowedUserIds.has(Number(userId));
+function isAuthorized(userId, chatId) {
+  if (config.telegram.allowedUserIds.has(Number(userId))) return true;
+  if (config.telegram.allowedGroupIds.has(Number(chatId))) return true;
+  return false;
 }
 
 /**
  * Express-style middleware for the Telegram polling handler.
- * Returns a wrapped handler that performs the whitelist check before
- * delegating to the real handler function.
+ * Checks both the sender's user ID and the chat ID against their respective
+ * whitelists before delegating to the real handler function.
  *
  * Usage:
  *   bot.on('message', guard(async (msg) => { ... }));
@@ -34,10 +39,13 @@ function isAuthorized(userId) {
 function guard(handler) {
   return async function (msg) {
     const userId = msg?.from?.id;
+    const chatId = msg?.chat?.id;
 
-    if (!isAuthorized(userId)) {
+    if (!isAuthorized(userId, chatId)) {
       logger.warn('Unauthorized Telegram access attempt silently dropped', {
         userId,
+        chatId,
+        chatType: msg?.chat?.type,
         username: msg?.from?.username,
         text: msg?.text?.slice(0, 30),
       });
