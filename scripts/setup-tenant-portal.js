@@ -26,6 +26,7 @@
 
 require('dotenv').config();
 const axios = require('axios');
+const { HttpsProxyAgent } = require('https-proxy-agent');
 
 const BASE = (process.env.ERPNEXT_BASE_URL || '').replace(/\/$/, '');
 const KEY  = process.env.ERPNEXT_API_KEY;
@@ -39,6 +40,11 @@ if (!BASE || !KEY || !SEC) {
   process.exit(1);
 }
 
+// When running inside a sandboxed/proxied environment (e.g. CI, cloud shells),
+// respect the https_proxy env var so requests reach the target host correctly.
+const proxyUrl = process.env.https_proxy || process.env.HTTPS_PROXY || '';
+const httpsAgent = proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined;
+
 const http = axios.create({
   baseURL: BASE,
   headers: {
@@ -47,6 +53,7 @@ const http = axios.create({
     Accept: 'application/json',
   },
   timeout: 30_000,
+  ...(httpsAgent ? { httpsAgent, proxy: false } : {}),
 });
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
