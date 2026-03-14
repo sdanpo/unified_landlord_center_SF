@@ -10,7 +10,7 @@
     "test:watch": "jest --watch",
     "lint": "eslint 'src/**/*.js' 'tests/**/*.js'",
     "setup:erpnext": "node scripts/setup-erpnext-fields.js",
-    "setup:integration": "node scripts/setup-erpnext-integration.js"
+    "setup:scripts": "node scripts/run-erpnext-setup.js"
   },
   "keywords": [
     "property-management",
