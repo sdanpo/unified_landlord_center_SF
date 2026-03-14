@@ -1,7 +1,7 @@
 {
   "name": "unified-landlord-center-sf",
   "version": "1.0.0",
-  "description": "AI-Augmented Omnichannel Property Management System – Telegram NLP agent for landlords + SMS for tenants",
+  "description": "AI-Augmented Property Management Assistant – Telegram NLP agent for landlords powered by ERPNext + OpenAI",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
@@ -9,27 +9,23 @@
     "test": "jest --coverage --forceExit",
     "test:watch": "jest --watch",
     "lint": "eslint 'src/**/*.js' 'tests/**/*.js'",
-    "setup:erpnext": "node scripts/setup-erpnext-fields.js"
+    "setup:erpnext": "node scripts/setup-erpnext-fields.js",
+    "setup:integration": "node scripts/setup-erpnext-integration.js"
   },
   "keywords": [
     "property-management",
     "telegram-bot",
-    "sms",
     "openai",
     "erpnext",
     "frappe",
     "propms",
-    "twilio",
-    "nlp",
-    "automation"
+    "nlp"
   ],
   "license": "MIT",
   "dependencies": {
     "axios": "^1.7.2",
     "dotenv": "^16.4.5",
-    "express": "^4.19.2",
     "https-proxy-agent": "^5.0.1",
-    "node-cron": "^3.0.3",
     "node-telegram-bot-api": "^0.66.0",
     "openai": "^4.52.0",
     "winston": "^3.13.0"
@@ -37,8 +33,7 @@
   "devDependencies": {
     "eslint": "^9.7.0",
     "jest": "^29.7.0",
-    "nodemon": "^3.1.4",
-    "supertest": "^7.0.0"
+    "nodemon": "^3.1.4"
   },
   "jest": {
     "testEnvironment": "node",
