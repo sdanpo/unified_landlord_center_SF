@@ -366,6 +366,72 @@ class ERPNextClient {
   async updateWorkOrder(name, payload) {
     return this._put('HD Ticket', name, payload);
   }
+
+  // ─── Tenant portal data ───────────────────────────────────────────────────
+  // Scoped queries used by the tenant self-service portal.
+  // ERPNext's portal layer enforces customer-level visibility automatically;
+  // these methods are used by the Node.js side for Telegram / reporting.
+
+  /**
+   * Return submitted Sales Invoices for a specific Customer (tenant).
+   * @param {string} customerId  – ERPNext Customer name
+   * @param {Object} [params]
+   * @param {string} [params.status]  – "unpaid" | "paid" | omit for all
+   */
+  async getTenantInvoices(customerId, { status } = {}) {
+    const filters = [
+      ['customer', '=', customerId],
+      ['docstatus', '=', 1],
+    ];
+    if (status === 'unpaid') filters.push(['outstanding_amount', '>', 0]);
+    if (status === 'paid')   filters.push(['outstanding_amount', '=', 0]);
+
+    return this._list('Sales Invoice', {
+      fields: [
+        'name', 'posting_date', 'due_date',
+        'grand_total', 'outstanding_amount', 'status',
+        'custom_unit', 'custom_lease',
+      ],
+      filters,
+      orderBy: 'posting_date desc',
+    });
+  }
+
+  /**
+   * Return submitted Payment Entries for a specific Customer (tenant).
+   * @param {string} customerId  – ERPNext Customer name
+   */
+  async getTenantPayments(customerId) {
+    return this._list('Payment Entry', {
+      fields: [
+        'name', 'posting_date', 'paid_amount',
+        'mode_of_payment', 'custom_unit', 'custom_lease',
+      ],
+      filters: [
+        ['party_type', '=', 'Customer'],
+        ['party', '=', customerId],
+        ['docstatus', '=', 1],
+      ],
+      orderBy: 'posting_date desc',
+    });
+  }
+
+  /**
+   * Return HD Tickets raised by or linked to a specific Customer.
+   * Frappe v15 rejects 'customer' as a server-side filter on HD Ticket,
+   * so we fetch all and filter client-side.
+   * @param {string} customerId  – ERPNext Customer name
+   */
+  async getTenantTickets(customerId) {
+    const all = await this._list('HD Ticket', {
+      fields: [
+        'name', 'subject', 'status', 'priority',
+        'customer', 'raised_by', 'creation', 'modified',
+      ],
+      orderBy: 'creation desc',
+    });
+    return all.filter(t => t.customer === customerId);
+  }
 }
 
 module.exports = ERPNextClient;
