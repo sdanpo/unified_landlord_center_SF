@@ -52,6 +52,10 @@ async function upsert(type, name, payload) {
 
 // ── Shared Python helpers embedded in scheduled scripts ─────────────────────
 
+// Alerts and scheduled reports go to the group chat (telegram_chat_id in the
+// "Telegram User Settings" record is set to TELEGRAM_ALLOWED_GROUP_IDS by
+// setup-tenant-portal.js and scripts/run-erpnext-setup.js).
+// Individual landlord DMs are kept for *command authorization* only.
 const TELEGRAM_HELPER = `
 def _send_telegram(msg):
     import requests as _r
@@ -275,6 +279,21 @@ _send_telegram("\\n".join(lines))
 
 async function main() {
   console.log(`\nRunning ERPNext Server Script setup against ${BASE}\n`);
+
+  // Point scheduled alert/report notifications to the group chat, not personal DMs.
+  const groupId = (process.env.TELEGRAM_ALLOWED_GROUP_IDS || '').split(',')[0].trim();
+  if (groupId) {
+    try {
+      await upsert('Telegram User Settings', 'dan.porat@gmail.com-Property Management', {
+        telegram_chat_id: groupId,
+        is_group_chat: 1,
+        telegram_user_name: 'SF Landlord Group',
+      });
+      console.log(`  ✓ Telegram alerts → group chat ${groupId}`);
+    } catch (err) {
+      console.warn('  ⚠  Could not update Telegram User Settings:', err.message);
+    }
+  }
 
   for (const { type, name, payload } of scripts) {
     try {

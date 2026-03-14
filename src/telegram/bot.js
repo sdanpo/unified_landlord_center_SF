@@ -201,10 +201,13 @@ async function processUpdate(update) {
 async function notifyLandlord(text) {
   const b = _getOrCreateBot();
 
-  const recipients = [
-    ...config.telegram.allowedUserIds,
-    ...config.telegram.allowedGroupIds,
-  ];
+  // When a group is configured, send reports/alerts there only — not to
+  // individual DMs.  The personal user IDs are kept in allowedUserIds for
+  // command *authorization* purposes; they are not notification targets when a
+  // group chat already covers the landlord.
+  const recipients = config.telegram.allowedGroupIds.size > 0
+    ? [...config.telegram.allowedGroupIds]
+    : [...config.telegram.allowedUserIds];
 
   const results = await Promise.allSettled(
     recipients.map((id) =>

@@ -223,12 +223,58 @@ async function configureStripe() {
   console.log('  ✓ Stripe gateway configured');
 }
 
-// ── 3. Tenant Portal Users ────────────────────────────────────────────────────
+// ── 3. Payment Request Permissions ───────────────────────────────────────────
+// By default Payment Request is only accessible to Accounts User / Manager.
+// Portal tenants (Customer role) need read access so the "Pay Now" page works.
+// We use Custom DocPerm (Frappe's non-destructive permission override layer) so
+// we don't touch core DocType definitions.  Standard admin roles are included
+// to avoid accidentally locking them out when Custom DocPerm takes precedence.
+
+const PAYMENT_REQUEST_CUSTOM_PERMS = [
+  // Portal tenants: read only, scoped via User Permission (party = Customer)
+  { role: 'Customer',         read: 1, write: 0, create: 0, submit: 0, cancel: 0, delete: 0, if_owner: 0 },
+  // Standard back-office roles — must be re-declared once Custom DocPerm exists
+  { role: 'Accounts User',    read: 1, write: 1, create: 1, submit: 0, cancel: 0, delete: 0, if_owner: 0 },
+  { role: 'Accounts Manager', read: 1, write: 1, create: 1, submit: 1, cancel: 1, delete: 0, if_owner: 0 },
+  { role: 'System Manager',   read: 1, write: 1, create: 1, submit: 1, cancel: 1, delete: 1, if_owner: 0 },
+];
+
+async function configurePaymentRequestPerms() {
+  console.log('\n── 3. Payment Request Permissions ───────────────────────────');
+
+  // Get existing Custom DocPerms for Payment Request
+  const existing = await listDocs(
+    'Custom DocPerm',
+    [['parent', '=', 'Payment Request']],
+    ['name', 'role']
+  );
+  const existingByRole = Object.fromEntries(existing.map(r => [r.role, r.name]));
+
+  for (const perm of PAYMENT_REQUEST_CUSTOM_PERMS) {
+    const payload = { parent: 'Payment Request', permlevel: 0, ...perm };
+    if (existingByRole[perm.role]) {
+      await http.put(
+        `/api/resource/Custom%20DocPerm/${encodeURIComponent(existingByRole[perm.role])}`,
+        payload
+      );
+      console.log(`  ↺ Updated  Custom DocPerm: Payment Request / ${perm.role}`);
+    } else {
+      await http.post('/api/resource/Custom%20DocPerm', payload);
+      console.log(`  + Created  Custom DocPerm: Payment Request / ${perm.role}`);
+    }
+  }
+
+  console.log('  ✓ Customer role can read Payment Request (Pay Now button no longer 403s)');
+}
+
+// ── 4. Tenant Portal Users ────────────────────────────────────────────────────
 // Each tenant needs an ERPNext Website User account so they can log in to the
 // portal.  We create / update a User record (user_type = "Website User") and
 // link it back to the matching Customer via the portal_users child table.
-// ERPNext then restricts portal views (invoices, payments, etc.) to records
-// belonging to that customer automatically.
+// A User Permission (allow Customer = <their customer>) is also created so that
+// ERPNext's record-level security automatically restricts the tenant's view of
+// invoices, payment requests, and all other customer-linked doctypes to only
+// their own records.
 
 async function ensurePortalUser(tenant) {
   const email = tenant.email_id || tenant.email || '';
@@ -258,30 +304,55 @@ async function ensurePortalUser(tenant) {
     return { skipped: true, reason: 'user_create_failed', detail };
   }
 
-  // Link the portal user to the Customer record
+  // Link the portal user to the Customer record via portal_users child table
   try {
     const current = await getDoc('Customer', tenant.name);
     const existingUsers = (current?.portal_users || []).map(u => u.user);
 
-    if (existingUsers.includes(email)) {
+    if (!existingUsers.includes(email)) {
+      await http.put(`/api/resource/Customer/${encodeURIComponent(tenant.name)}`, {
+        portal_users: [...(current?.portal_users || []), { user: email }],
+      });
+      console.log(`  ✓ Linked ${email} → Customer ${tenant.name}`);
+    } else {
       console.log(`  = ${email} already linked to Customer ${tenant.name}`);
-      return { skipped: false, linked: false, alreadyLinked: true };
     }
-
-    await http.put(`/api/resource/Customer/${encodeURIComponent(tenant.name)}`, {
-      portal_users: [...(current?.portal_users || []), { user: email }],
-    });
-    console.log(`  ✓ Linked ${email} → Customer ${tenant.name}`);
-    return { skipped: false, linked: true };
   } catch (e) {
     const detail = e.response?.data?.exception || e.message;
     console.warn(`  ⚠  Could not link ${email} to Customer ${tenant.name}: ${detail}`);
     return { skipped: true, reason: 'link_failed', detail };
   }
+
+  // Create User Permission: this is what ERPNext uses to scope ALL portal data
+  // (invoices, payment requests, etc.) to only this tenant's records.
+  try {
+    const upList = await listDocs(
+      'User Permission',
+      [['user', '=', email], ['allow', '=', 'Customer'], ['for_value', '=', tenant.name]],
+      ['name']
+    );
+    if (upList.length === 0) {
+      await http.post('/api/resource/User%20Permission', {
+        user: email,
+        allow: 'Customer',
+        for_value: tenant.name,
+        apply_to_all_doctypes: 1,
+        is_default: 1,
+      });
+      console.log(`  ✓ User Permission created: ${email} → Customer ${tenant.name}`);
+    } else {
+      console.log(`  = User Permission already exists for ${email}`);
+    }
+  } catch (e) {
+    const detail = e.response?.data?.exception || e.message;
+    console.warn(`  ⚠  Could not create User Permission for ${email}: ${detail}`);
+  }
+
+  return { skipped: false, linked: true };
 }
 
 async function configureTenantPortalUsers() {
-  console.log('\n── 3. Tenant Portal Users ───────────────────────────────────');
+  console.log('\n── 4. Tenant Portal Users ───────────────────────────────────');
 
   // Fetch all customers; filter to Tenant group client-side (Frappe v15 limitation)
   const customers = await listDocs('Customer', [], [
@@ -334,6 +405,13 @@ async function main() {
   }
 
   try {
+    await configurePaymentRequestPerms();
+  } catch (e) {
+    const detail = e.response?.data?.exception || e.message;
+    console.error(`  ✗ Payment Request permissions failed: ${detail}`);
+  }
+
+  try {
     await configureTenantPortalUsers();
   } catch (e) {
     const detail = e.response?.data?.exception || e.message;
@@ -350,7 +428,7 @@ async function main() {
 }
 
 // Export helpers for unit testing
-module.exports = { getDoc, upsert, listDocs, ensurePortalUser, PORTAL_MENU_ITEMS };
+module.exports = { getDoc, upsert, listDocs, ensurePortalUser, PORTAL_MENU_ITEMS, PAYMENT_REQUEST_CUSTOM_PERMS };
 
 // Only run when invoked directly (not when required by tests)
 if (require.main === module) {
