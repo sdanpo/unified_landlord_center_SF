@@ -269,7 +269,56 @@ async function configurePaymentRequestPerms() {
   console.log('  ✓ Customer role can read Payment Request (Pay Now button no longer 403s)');
 }
 
-// ── 4. Tenant Portal Users ────────────────────────────────────────────────────
+// ── 4. Sales Invoice Permissions ─────────────────────────────────────────────
+// `make_payment_request` (the ERPNext API called by the portal "Pay" button)
+// internally calls frappe.get_doc("Sales Invoice", dn) which requires
+// permlevel=0 read permission.  By default, the Customer role has no permlevel=0
+// entry — only the portal template uses ignore_permissions=True.
+// We add Customer (pl=0, read-only) and re-declare all existing standard roles
+// because Frappe replaces standard DocPerm entirely once any Custom DocPerm exists.
+
+const SALES_INVOICE_CUSTOM_PERMS = [
+  // permlevel 0 — document-level access
+  { role: 'Customer',         permlevel: 0, read: 1, write: 0, create: 0, submit: 0, cancel: 0, delete: 0, if_owner: 0 },
+  { role: 'Accounts User',    permlevel: 0, read: 1, write: 1, create: 1, submit: 0, cancel: 0, delete: 0, if_owner: 0 },
+  { role: 'Accounts Manager', permlevel: 0, read: 1, write: 1, create: 1, submit: 1, cancel: 1, delete: 0, if_owner: 0 },
+  // permlevel 1 — higher-level field access (keeps existing standard behaviour)
+  { role: 'Accounts Manager', permlevel: 1, read: 1, write: 1, create: 0, submit: 0, cancel: 0, delete: 0, if_owner: 0 },
+  { role: 'All',              permlevel: 1, read: 1, write: 0, create: 0, submit: 0, cancel: 0, delete: 0, if_owner: 0 },
+];
+
+async function configureSalesInvoicePerms() {
+  console.log('\n── 4. Sales Invoice Permissions ─────────────────────────────');
+
+  const existing = await listDocs(
+    'Custom DocPerm',
+    [['parent', '=', 'Sales Invoice']],
+    ['name', 'role', 'permlevel']
+  );
+  // Key by "role|permlevel" so we handle the two Accounts Manager entries correctly
+  const existingByKey = Object.fromEntries(
+    existing.map(r => [`${r.role}|${r.permlevel}`, r.name])
+  );
+
+  for (const perm of SALES_INVOICE_CUSTOM_PERMS) {
+    const key = `${perm.role}|${perm.permlevel}`;
+    const payload = { parent: 'Sales Invoice', ...perm };
+    if (existingByKey[key]) {
+      await http.put(
+        `/api/resource/Custom%20DocPerm/${encodeURIComponent(existingByKey[key])}`,
+        payload
+      );
+      console.log(`  ↺ Updated  Custom DocPerm: Sales Invoice / ${perm.role} (pl=${perm.permlevel})`);
+    } else {
+      await http.post('/api/resource/Custom%20DocPerm', payload);
+      console.log(`  + Created  Custom DocPerm: Sales Invoice / ${perm.role} (pl=${perm.permlevel})`);
+    }
+  }
+
+  console.log('  ✓ Customer role can read Sales Invoice (make_payment_request no longer 403s)');
+}
+
+// ── 5. Tenant Portal Users ────────────────────────────────────────────────────
 // Each tenant needs an ERPNext Website User account so they can log in to the
 // portal.  We create / update a User record (user_type = "Website User") and
 // link it back to the matching Customer via the portal_users child table.
@@ -354,7 +403,7 @@ async function ensurePortalUser(tenant) {
 }
 
 async function configureTenantPortalUsers() {
-  console.log('\n── 4. Tenant Portal Users ───────────────────────────────────');
+  console.log('\n── 5. Tenant Portal Users ───────────────────────────────────');
 
   // Fetch all customers; filter to Tenant group client-side (Frappe v15 limitation)
   const customers = await listDocs('Customer', [], [
@@ -414,6 +463,13 @@ async function main() {
   }
 
   try {
+    await configureSalesInvoicePerms();
+  } catch (e) {
+    const detail = e.response?.data?.exception || e.message;
+    console.error(`  ✗ Sales Invoice permissions failed: ${detail}`);
+  }
+
+  try {
     await configureTenantPortalUsers();
   } catch (e) {
     const detail = e.response?.data?.exception || e.message;
@@ -430,7 +486,7 @@ async function main() {
 }
 
 // Export helpers for unit testing
-module.exports = { getDoc, upsert, listDocs, ensurePortalUser, PORTAL_MENU_ITEMS, PAYMENT_REQUEST_CUSTOM_PERMS };
+module.exports = { getDoc, upsert, listDocs, ensurePortalUser, PORTAL_MENU_ITEMS, PAYMENT_REQUEST_CUSTOM_PERMS, SALES_INVOICE_CUSTOM_PERMS };
 
 // Only run when invoked directly (not when required by tests)
 if (require.main === module) {
