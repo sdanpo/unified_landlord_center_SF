@@ -198,13 +198,15 @@ async function configureStripe() {
   });
 
   // Payment Gateway Account — links the Stripe gateway to the AR GL account.
+  // ERPNext names the auto-created Payment Gateway "Stripe-Stripe" (type-name).
   // The GL account name is instance-specific; override via STRIPE_PAYMENT_ACCOUNT.
+  // Default "Debtors - LD" matches the Lutra (Demo) company used for tenant invoices.
   const paymentAccount =
-    process.env.STRIPE_PAYMENT_ACCOUNT || 'Debtors - LC';
+    process.env.STRIPE_PAYMENT_ACCOUNT || 'Debtors - LD';
 
   try {
-    await upsert('Payment Gateway Account', 'Stripe - USD', {
-      payment_gateway: 'Stripe',
+    await upsert('Payment Gateway Account', 'Stripe-Stripe - USD - LD', {
+      payment_gateway: 'Stripe-Stripe',
       currency: 'USD',
       payment_account: paymentAccount,
       message: 'Pay your rent securely online with Stripe.',
