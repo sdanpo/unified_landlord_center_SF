@@ -3,11 +3,10 @@
 /**
  * Application entry point.
  *
- * Startup order:
- *   1. Validate environment configuration
- *   2. Start the Express webhook server
- *   3. Start the Telegram NLP bot
- *   4. Start the automation scheduler (cron jobs)
+ * The server now has a single responsibility: run the Telegram AI bot.
+ * Scheduled notifications and event-driven alerts (SMS, Telegram) are
+ * handled directly by ERPNext Server Scripts – see:
+ *   scripts/setup-erpnext-integration.js
  */
 
 const { validate } = require('./config');
@@ -22,49 +21,24 @@ async function main() {
     process.exit(1);
   }
 
-  // ── 2. Webhook server ────────────────────────────────────────────────────────
-  const { createWebhookApp } = require('./webhook/server');
-  const { config } = require('./config');
-
-  const app = createWebhookApp();
-  const server = app.listen(config.webhook.port, () => {
-    logger.info(`Webhook server listening on port ${config.webhook.port}`);
-    logger.info(`ERPNext webhook base: POST ${config.webhook.baseUrl}/webhooks/erpnext/{event}`);
-  });
-
-  // ── 3. Telegram bot ──────────────────────────────────────────────────────────
-  const { createBot } = require('./telegram/bot');
+  // ── 2. Telegram AI bot ───────────────────────────────────────────────────────
+  const { createBot, stopBot } = require('./telegram/bot');
   createBot();
 
-  // ── 4. Automation scheduler ──────────────────────────────────────────────────
-  const scheduler = require('./automation/scheduler');
-  scheduler.start();
-
-  logger.info('Unified Landlord Center started successfully', {
-    pmsProvider: 'erpnext',
-    reportDelivery: config.reports.delivery,
+  logger.info('Unified Landlord Center started', {
+    mode: 'telegram-bot-only',
+    note: 'Scheduling and SMS notifications handled by ERPNext Server Scripts',
   });
 
   // ── Graceful shutdown ────────────────────────────────────────────────────────
   const shutdown = async (signal) => {
     logger.info(`Received ${signal} – shutting down`);
-
-    scheduler.stop();
-
-    const { stopBot } = require('./telegram/bot');
     await stopBot();
-
-    server.close(() => {
-      logger.info('HTTP server closed');
-      process.exit(0);
-    });
-
-    // Force exit after 10 s if graceful close hangs
-    setTimeout(() => process.exit(1), 10_000).unref();
+    process.exit(0);
   };
 
   process.on('SIGTERM', () => shutdown('SIGTERM'));
-  process.on('SIGINT', () => shutdown('SIGINT'));
+  process.on('SIGINT',  () => shutdown('SIGINT'));
 }
 
 main().catch((err) => {
