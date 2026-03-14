@@ -36,6 +36,17 @@ const config = {
     ),
   },
 
+  stripe: {
+    publishableKey: process.env.STRIPE_PUBLISHABLE_KEY || '',
+    secretKey:      process.env.STRIPE_SECRET_KEY      || '',
+    paymentAccount: process.env.STRIPE_PAYMENT_ACCOUNT || 'Debtors - LD',
+  },
+
+  webhook: {
+    port:   parseInt(process.env.WEBHOOK_PORT || '3000', 10),
+    secret: process.env.WEBHOOK_SECRET || '',
+  },
+
   log: {
     level: process.env.LOG_LEVEL || 'info',
   },
