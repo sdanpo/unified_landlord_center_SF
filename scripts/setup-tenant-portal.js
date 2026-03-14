@@ -111,18 +111,22 @@ const PORTAL_MENU_ITEMS = [
     reference_doctype: 'Sales Invoice',
     role: 'Customer',
   },
+  // /payments is not a valid ERPNext portal page — disabled to avoid 404.
+  // Tenants view payment history through the invoice detail page (/invoices/<name>).
   {
     title: 'Payment History',
-    enabled: 1,
+    enabled: 0,
     route: '/payments',
     reference_doctype: 'Payment Entry',
     role: 'Customer',
   },
+  // Standard ERPNext Issues portal page is /issues (not /helpdesk).
+  // /helpdesk resolves to the Frappe Helpdesk app if installed; /issues always works.
   {
     title: 'Maintenance Tickets',
     enabled: 1,
-    route: '/helpdesk',
-    reference_doctype: 'HD Ticket',
+    route: '/issues',
+    reference_doctype: 'Issue',
     role: 'Customer',
   },
   {
@@ -143,12 +147,27 @@ const PORTAL_MENU_ITEMS = [
 
 async function configurePortalSettings() {
   console.log('\n── 1. Portal Settings ───────────────────────────────────────');
+  // Fetch current settings so we preserve existing menu item name-keys (DB row IDs)
+  // while updating routes/enabled flags.  We merge by title to avoid duplicates.
+  const { data: current } = await http.get('/api/resource/Portal%20Settings/Portal%20Settings');
+  const existingByTitle = Object.fromEntries(
+    (current.data.menu || []).map(m => [m.title, m])
+  );
+
+  const mergedMenu = PORTAL_MENU_ITEMS.map(desired => ({
+    ...(existingByTitle[desired.title] || {}),
+    ...desired,
+  }));
+
   await http.put('/api/resource/Portal%20Settings/Portal%20Settings', {
     hide_standard_pages: 0,
     logout_on_session_expiry: 0,
-    menu: PORTAL_MENU_ITEMS,
+    menu: mergedMenu,
+    custom_menu: [], // clear any stale custom entries (e.g. /leases, /payments)
   });
-  console.log('  ✓ Portal pages enabled: invoices, payments, helpdesk, addresses, profile');
+  console.log('  ✓ Portal pages configured: invoices (on), issues (on), addresses (on), profile (on)');
+  console.log('  ✓ Payment History disabled (no /payments page in standard ERPNext)');
+  console.log('  ✓ Custom menu cleared (removed /leases and duplicate /payments entries)');
 }
 
 // ── 2. Stripe Payment Gateway ─────────────────────────────────────────────────
@@ -323,12 +342,11 @@ async function main() {
 
   console.log('\n✓ Tenant portal setup complete.\n');
   console.log('Next steps:');
-  console.log(`  1. Tenants log in at:            ${BASE}/login`);
-  console.log(`  2. Rent invoices (pay via Stripe): ${BASE}/invoices`);
-  console.log(`  3. Payment history:               ${BASE}/payments`);
-  console.log(`  4. Maintenance tickets:           ${BASE}/helpdesk`);
-  console.log('  5. Add STRIPE_PUBLISHABLE_KEY + STRIPE_SECRET_KEY to .env');
-  console.log('     to activate online payment collection.\n');
+  console.log(`  1. Tenants log in at:             ${BASE}/login`);
+  console.log(`  2. Rent invoices + payment links: ${BASE}/invoices`);
+  console.log(`  3. Maintenance tickets:           ${BASE}/issues`);
+  console.log('  4. Add STRIPE_PUBLISHABLE_KEY + STRIPE_SECRET_KEY to .env');
+  console.log('     to activate the "Pay Now" button on invoices.\n');
 }
 
 // Export helpers for unit testing
