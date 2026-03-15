@@ -532,6 +532,32 @@ ${ACH_SCRIPT_MARKER}
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();
 })();
+
+/* Add Payment History link to portal sidebar */
+(function () {
+  var BASE = '${webhookBase}';
+  function addHistoryLink() {
+    if (document.querySelector('[data-pm-hist]')) return;
+    var email = (typeof frappe !== 'undefined' && frappe.session && frappe.session.user !== 'Guest')
+      ? frappe.session.user : null;
+    if (!email) return;
+    var sidebar = document.querySelector('.portal-sidebar .list-group');
+    if (!sidebar) return;
+    var a = document.createElement('a');
+    a.href = BASE + '/payment-history?email=' + encodeURIComponent(email);
+    a.target = '_blank';
+    a.rel = 'noopener';
+    a.className = 'list-group-item list-group-item-action';
+    a.setAttribute('data-pm-hist', '1');
+    a.textContent = 'Payment History';
+    sidebar.appendChild(a);
+  }
+  var t = setInterval(function () {
+    addHistoryLink();
+    if (document.querySelector('[data-pm-hist]')) clearInterval(t);
+  }, 400);
+  setTimeout(function () { clearInterval(t); }, 8000);
+})();
 </script>
 ${ACH_SCRIPT_MARKER}`.trimStart();
 
@@ -540,7 +566,8 @@ ${ACH_SCRIPT_MARKER}`.trimStart();
     head_html: newHead,
   });
   console.log('  ✓ ACH pay button script injected into Website Settings.head_html');
-  console.log(`  ✓ Pay button routes to: ${webhookBase}/checkout`);
+  console.log(`  ✓ Pay button routes to:        ${webhookBase}/checkout`);
+  console.log(`  ✓ Payment history sidebar link: ${webhookBase}/payment-history`);
 }
 
 // ── 0. Cancel blocking Payment Requests ───────────────────────────────────────
