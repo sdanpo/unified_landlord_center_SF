@@ -8,7 +8,9 @@
  *
  * Event types:
  *   rent.overdue       – Sales Invoice becomes overdue
- *   payment.received   – Payment Entry recorded
+ *   payment.received   – Payment Entry recorded (card or ACH confirmed)
+ *   payment.pending    – ACH checkout completed; awaiting bank confirmation
+ *   payment.failed     – ACH payment bounced
  *   workorder.created  – HD Ticket opened
  *   lease.created      – Lease / Property Agreement submitted
  *   lease.expired      – Lease / Property Agreement cancelled
@@ -41,7 +43,19 @@ async function handle(event) {
     case 'payment.received':
       await notifyLandlord(
         `✅ Payment received: ${data.tenantName} paid $${data.amountPaid}` +
-        (data.mode ? ` via ${data.mode}` : '')
+        (data.paymentMethod ? ` via ${data.paymentMethod}` : '')
+      );
+      break;
+
+    case 'payment.pending':
+      await notifyLandlord(
+        `🕐 ACH payment pending: ${data.tenantName} initiated ${data.amount} bank transfer for ${data.invoiceName} — funds arrive in 1-5 business days`
+      );
+      break;
+
+    case 'payment.failed':
+      await notifyLandlord(
+        `❌ ACH payment FAILED: ${data.tenantName} — ${data.amount} bank transfer for ${data.invoiceName} was rejected. Contact tenant to arrange alternative payment.`
       );
       break;
 

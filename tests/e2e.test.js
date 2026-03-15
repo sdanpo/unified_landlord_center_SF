@@ -445,6 +445,182 @@ describe('Webhook Server', () => {
   });
 });
 
+// ─── 6b. Stripe Webhook ───────────────────────────────────────────────────────
+
+describe('Stripe Webhook', () => {
+  const STRIPE_TEST_SECRET = 'whsec_test_stripe_webhook_secret_for_unit_tests';
+  let app;
+
+  // Build a valid Stripe-style webhook signature header
+  function stripeSign(rawBody, secret = STRIPE_TEST_SECRET) {
+    const timestamp = Math.floor(Date.now() / 1000).toString();
+    const payload   = `${timestamp}.${rawBody}`;
+    const sig       = crypto.createHmac('sha256', secret).update(payload).digest('hex');
+    return { header: `t=${timestamp},v1=${sig}`, timestamp };
+  }
+
+  // Save and clear ERPNext credentials so onPaymentConfirmed skips the
+  // HTTP call to create a Payment Entry (avoids 20s timeout in tests).
+  let savedErpnextEnv;
+
+  beforeAll(() => {
+    savedErpnextEnv = {
+      ERPNEXT_BASE_URL:    process.env.ERPNEXT_BASE_URL,
+      ERPNEXT_API_KEY:     process.env.ERPNEXT_API_KEY,
+      ERPNEXT_API_SECRET:  process.env.ERPNEXT_API_SECRET,
+    };
+    process.env.ERPNEXT_BASE_URL   = '';
+    process.env.ERPNEXT_API_KEY    = '';
+    process.env.ERPNEXT_API_SECRET = '';
+    process.env.STRIPE_WEBHOOK_SECRET = STRIPE_TEST_SECRET;
+
+    jest.mock('../src/webhook/handlers', () => ({
+      handle: jest.fn().mockResolvedValue(undefined),
+    }));
+    const { createWebhookApp } = require('../src/webhook/server');
+    app = createWebhookApp();
+  });
+
+  afterAll(() => {
+    Object.assign(process.env, savedErpnextEnv);
+    delete process.env.STRIPE_WEBHOOK_SECRET;
+    jest.unmock('../src/webhook/handlers');
+    jest.resetModules();
+  });
+
+  test('POST /webhooks/stripe with valid signature → 200', async () => {
+    const body = JSON.stringify({
+      type: 'checkout.session.completed',
+      data: { object: {
+        id: 'cs_test_123',
+        payment_status: 'unpaid',
+        amount_total: 250000,
+        metadata: { invoice: 'ACC-SINV-2026-00001', tenant: 'Rotem Porat' },
+      }},
+    });
+    const { header } = stripeSign(body);
+    const res = await request(app)
+      .post('/webhooks/stripe')
+      .set('Content-Type', 'application/json')
+      .set('stripe-signature', header)
+      .send(body);
+    expect(res.status).toBe(200);
+    expect(res.body.received).toBe(true);
+  });
+
+  test('POST /webhooks/stripe with invalid signature → 400', async () => {
+    const body = JSON.stringify({ type: 'checkout.session.completed', data: { object: {} } });
+    const res = await request(app)
+      .post('/webhooks/stripe')
+      .set('Content-Type', 'application/json')
+      .set('stripe-signature', 't=9999999999,v1=badhexbadhexbadhex')
+      .send(body);
+    expect(res.status).toBe(400);
+  });
+
+  test('async_payment_succeeded → handle() called with payment.received', async () => {
+    const { handle } = require('../src/webhook/handlers');
+    handle.mockClear();
+
+    const body = JSON.stringify({
+      type: 'checkout.session.async_payment_succeeded',
+      data: { object: {
+        id: 'cs_test_456',
+        payment_status: 'paid',
+        amount_total: 280000,
+        metadata: { invoice: 'ACC-SINV-2026-00002', tenant: 'Maria Garcia' },
+      }},
+    });
+    const { header } = stripeSign(body);
+    const res = await request(app)
+      .post('/webhooks/stripe')
+      .set('Content-Type', 'application/json')
+      .set('stripe-signature', header)
+      .send(body);
+
+    expect(res.status).toBe(200);
+    // Wait briefly for setImmediate handler
+    await new Promise(r => setTimeout(r, 50));
+    const types = handle.mock.calls.map(c => c[0].type);
+    expect(types).toContain('payment.received');
+  });
+
+  test('async_payment_failed → handle() called with payment.failed', async () => {
+    const { handle } = require('../src/webhook/handlers');
+    handle.mockClear();
+
+    const body = JSON.stringify({
+      type: 'checkout.session.async_payment_failed',
+      data: { object: {
+        id: 'cs_test_789',
+        amount_total: 280000,
+        metadata: { invoice: 'ACC-SINV-2026-00002', tenant: 'Maria Garcia' },
+      }},
+    });
+    const { header } = stripeSign(body);
+    const res = await request(app)
+      .post('/webhooks/stripe')
+      .set('Content-Type', 'application/json')
+      .set('stripe-signature', header)
+      .send(body);
+
+    expect(res.status).toBe(200);
+    await new Promise(r => setTimeout(r, 50));
+    const types = handle.mock.calls.map(c => c[0].type);
+    expect(types).toContain('payment.failed');
+  });
+
+  test('checkout.session.completed (payment_status=paid) → payment.received', async () => {
+    const { handle } = require('../src/webhook/handlers');
+    handle.mockClear();
+
+    const body = JSON.stringify({
+      type: 'checkout.session.completed',
+      data: { object: {
+        id: 'cs_test_card',
+        payment_status: 'paid',
+        amount_total: 300000,
+        metadata: { invoice: 'ACC-SINV-2026-00003', tenant: 'James Wilson' },
+      }},
+    });
+    const { header } = stripeSign(body);
+    await request(app)
+      .post('/webhooks/stripe')
+      .set('Content-Type', 'application/json')
+      .set('stripe-signature', header)
+      .send(body);
+
+    await new Promise(r => setTimeout(r, 50));
+    const types = handle.mock.calls.map(c => c[0].type);
+    expect(types).toContain('payment.received');
+  });
+
+  test('checkout.session.completed (payment_status=unpaid) → payment.pending', async () => {
+    const { handle } = require('../src/webhook/handlers');
+    handle.mockClear();
+
+    const body = JSON.stringify({
+      type: 'checkout.session.completed',
+      data: { object: {
+        id: 'cs_test_ach_pending',
+        payment_status: 'unpaid',
+        amount_total: 250000,
+        metadata: { invoice: 'ACC-SINV-2026-00004', tenant: 'Rotem Porat' },
+      }},
+    });
+    const { header } = stripeSign(body);
+    await request(app)
+      .post('/webhooks/stripe')
+      .set('Content-Type', 'application/json')
+      .set('stripe-signature', header)
+      .send(body);
+
+    await new Promise(r => setTimeout(r, 50));
+    const types = handle.mock.calls.map(c => c[0].type);
+    expect(types).toContain('payment.pending');
+  });
+});
+
 // ─── 7. AI Agentic Loop via real OpenAI + real ERPNext data ──────────────────
 
 describe('AI Agentic Loop (OpenAI + live ERPNext)', () => {

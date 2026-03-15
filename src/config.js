@@ -37,9 +37,15 @@ const config = {
   },
 
   stripe: {
-    publishableKey: process.env.STRIPE_PUBLISHABLE_KEY || '',
-    secretKey:      process.env.STRIPE_SECRET_KEY      || '',
-    paymentAccount: process.env.STRIPE_PAYMENT_ACCOUNT || 'Debtors - LD',
+    publishableKey:  process.env.STRIPE_PUBLISHABLE_KEY  || '',
+    secretKey:       process.env.STRIPE_SECRET_KEY       || '',
+    // webhookSecret: the "Signing secret" from Stripe Dashboard → Webhooks (starts with whsec_)
+    webhookSecret:   process.env.STRIPE_WEBHOOK_SECRET   || '',
+    // paymentAccount: ERPNext AR account that carries the receivable (paid_from on Payment Entry)
+    paymentAccount:  process.env.STRIPE_PAYMENT_ACCOUNT  || 'Debtors - LD',
+    // bankAccount: ERPNext bank/cash account where Stripe deposits land (paid_to on Payment Entry).
+    // If set, Payment Entries are auto-submitted.  If empty, they are created as drafts for review.
+    bankAccount:     process.env.STRIPE_BANK_ACCOUNT     || '',
   },
 
   webhook: {
