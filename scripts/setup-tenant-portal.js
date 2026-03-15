@@ -911,11 +911,87 @@ async function configureMyDocsPage() {
 
 // ── 6e. Rental Application Web Form at /apply ─────────────────────────────────
 // Public (no login required) Web Form that creates a Lead on submit.
-// Custom fields on Lead (created by setup-erpnext-fields.js) capture
-// all application-specific data.
+// This function ensures all required Lead fields (standard + custom) exist
+// before creating the Web Form, so it is safe to run without first running
+// setup-erpnext-fields.js separately.
+
+/** Check whether a Custom Field already exists on a DocType. */
+async function customFieldExists(dt, fieldname) {
+  try {
+    const { data } = await http.get('/api/resource/Custom Field', {
+      params: {
+        filters: JSON.stringify([['dt', '=', dt], ['fieldname', '=', fieldname]]),
+        fields: JSON.stringify(['name']),
+        limit_page_length: 1,
+      },
+    });
+    return (data?.data?.length ?? 0) > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Ensure every field referenced by the /apply Web Form exists on Lead.
+ *
+ * The 14 custom_* fields are always created here.  `designation` and
+ * `lead_source` are attempted as custom fields only when they are absent
+ * from the standard Lead DocType (their creation is silently skipped if
+ * ERPNext rejects them as duplicates of a standard field).
+ */
+async function ensureLeadApplicationFields() {
+  const FIELDS = [
+    // Standard fields that may be absent on some ERPNext versions:
+    { fieldname: 'designation',  label: 'Job Title',   fieldtype: 'Data',   insert_after: 'company' },
+    { fieldname: 'lead_source',  label: 'Lead Source', fieldtype: 'Select',
+      options: '\nOnline Application\nCold Call\nReferral\nOther',           insert_after: 'status' },
+    // Custom application fields (same as setup-erpnext-fields.js Lead section):
+    { fieldname: 'custom_date_of_birth',            label: 'Date of Birth',               fieldtype: 'Date',       insert_after: 'mobile_no' },
+    { fieldname: 'custom_current_address',          label: 'Current Address',             fieldtype: 'Small Text', insert_after: 'custom_date_of_birth' },
+    { fieldname: 'custom_monthly_rent_paid',        label: 'Monthly Rent Paid Currently', fieldtype: 'Currency',   insert_after: 'custom_current_address' },
+    { fieldname: 'custom_current_landlord_name',    label: 'Current Landlord Name',       fieldtype: 'Data',       insert_after: 'custom_monthly_rent_paid' },
+    { fieldname: 'custom_current_landlord_phone',   label: 'Current Landlord Phone',      fieldtype: 'Data',       insert_after: 'custom_current_landlord_name' },
+    { fieldname: 'custom_monthly_gross_income',     label: 'Monthly Gross Income',        fieldtype: 'Currency',   insert_after: 'custom_current_landlord_phone' },
+    { fieldname: 'custom_employment_start_date',    label: 'Employment Start Date',       fieldtype: 'Date',       insert_after: 'custom_monthly_gross_income' },
+    { fieldname: 'custom_eviction_history',         label: 'Ever Evicted?',               fieldtype: 'Select',
+      options: '\nYes\nNo',                                                                insert_after: 'custom_employment_start_date' },
+    { fieldname: 'custom_broken_lease_history',     label: 'Ever Broken a Lease?',        fieldtype: 'Select',
+      options: '\nYes\nNo',                                                                insert_after: 'custom_eviction_history' },
+    { fieldname: 'custom_number_of_occupants',      label: 'Number of Occupants',         fieldtype: 'Int',        insert_after: 'custom_broken_lease_history' },
+    { fieldname: 'custom_has_pets',                 label: 'Any Pets?',                   fieldtype: 'Select',
+      options: '\nYes\nNo',                                                                insert_after: 'custom_number_of_occupants' },
+    { fieldname: 'custom_pet_description',          label: 'Pet Description',             fieldtype: 'Small Text', insert_after: 'custom_has_pets' },
+    { fieldname: 'custom_consent_background_check', label: 'Consent: Background Check',   fieldtype: 'Check',      insert_after: 'custom_pet_description',          default: '0' },
+    { fieldname: 'custom_consent_accuracy',         label: 'Consent: Info Is Accurate',   fieldtype: 'Check',      insert_after: 'custom_consent_background_check', default: '0' },
+  ];
+
+  for (const f of FIELDS) {
+    if (await customFieldExists('Lead', f.fieldname)) continue;   // already a custom field
+
+    try {
+      const payload = { dt: 'Lead', fieldname: f.fieldname, label: f.label,
+                        fieldtype: f.fieldtype, insert_after: f.insert_after };
+      if (f.options !== undefined) payload.options = f.options;
+      if (f.default !== undefined) payload.default = f.default;
+      await http.post('/api/resource/Custom Field', payload);
+      console.log(`    + Lead.${f.fieldname}`);
+    } catch (err) {
+      const detail = err.response?.data?.exception || err.response?.data?.message || err.message;
+      // Silently skip fields that are already present as standard Lead fields.
+      if (/already appears in the standard form/i.test(detail) || /already exists/i.test(detail)) {
+        // standard field — no action needed
+      } else {
+        console.warn(`    ⚠  Lead.${f.fieldname}: ${detail}`);
+      }
+    }
+  }
+}
 
 async function configureApplyWebForm() {
   console.log('\n── 6e. Rental Application Web Form (/apply) ─────────────────');
+
+  console.log('  Ensuring Lead application fields exist …');
+  await ensureLeadApplicationFields();
 
   await upsert('Web Form', 'Rental Application', {
     title: 'Rental Application',
