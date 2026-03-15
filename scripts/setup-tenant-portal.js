@@ -111,22 +111,21 @@ const PORTAL_MENU_ITEMS = [
     reference_doctype: 'Sales Invoice',
     role: 'Customer',
   },
-  // /payments is not a valid ERPNext portal page — disabled to avoid 404.
-  // Tenants view payment history through the invoice detail page (/invoices/<name>).
+  // Payment Entry portal page — standard ERPNext /payments portal route.
   {
     title: 'Payment History',
-    enabled: 0,
+    enabled: 1,
     route: '/payments',
     reference_doctype: 'Payment Entry',
     role: 'Customer',
   },
-  // Standard ERPNext Issues portal page is /issues (not /helpdesk).
-  // /helpdesk resolves to the Frappe Helpdesk app if installed; /issues always works.
+  // Frappe Helpdesk app is installed on this instance; /helpdesk is the correct route.
+  // /issues remains as fallback for instances without the helpdesk app.
   {
     title: 'Maintenance Tickets',
     enabled: 1,
-    route: '/issues',
-    reference_doctype: 'Issue',
+    route: '/helpdesk',
+    reference_doctype: 'HD Ticket',
     role: 'Customer',
   },
   {
@@ -356,11 +355,13 @@ async function ensurePortalUser(tenant) {
   }
 
   // Link the portal user to the Customer record via portal_users child table
+  let alreadyLinked = false;
   try {
     const current = await getDoc('Customer', tenant.name);
     const existingUsers = (current?.portal_users || []).map(u => u.user);
+    alreadyLinked = existingUsers.includes(email);
 
-    if (!existingUsers.includes(email)) {
+    if (!alreadyLinked) {
       await http.put(`/api/resource/Customer/${encodeURIComponent(tenant.name)}`, {
         portal_users: [...(current?.portal_users || []), { user: email }],
       });
@@ -399,7 +400,7 @@ async function ensurePortalUser(tenant) {
     console.warn(`  ⚠  Could not create User Permission for ${email}: ${detail}`);
   }
 
-  return { skipped: false, linked: true };
+  return { skipped: false, alreadyLinked, linked: true };
 }
 
 async function configureTenantPortalUsers() {
@@ -434,6 +435,78 @@ async function configureTenantPortalUsers() {
     `\n  Portal users: ${results.created} processed, ` +
     `${results.linked} newly linked, ${results.skipped} skipped.`
   );
+}
+
+// ── 6. Portal Pay Button — ACH override Website Script ───────────────────────
+// The standard ERPNext portal Pay button calls make_payment_request which
+// redirects to /stripe_checkout — an embedded Stripe card-only form.
+// This Website Script intercepts the button and instead routes through our
+// Node.js /checkout endpoint, which creates a Stripe-hosted Checkout Session
+// that offers both credit card AND ACH bank transfer.
+//
+// The script is kept DISABLED until WEBHOOK_BASE_URL is set to the deployed
+// Node.js app URL (Railway, etc.).  Run setup-tenant-portal.js after deploying
+// to enable it automatically.
+
+async function configurePayButtonScript() {
+  console.log('\n── 6. Portal Pay Button ACH Script ──────────────────────────');
+
+  const webhookBase = (process.env.WEBHOOK_BASE_URL || '').replace(/\/$/, '');
+  const isConfigured = webhookBase && webhookBase !== 'https://your-server.example.com';
+
+  const scriptJs = `
+// Intercept the portal "Pay" button to use Stripe Checkout with card + ACH support.
+frappe.ready(function () {
+  var path = window.location.pathname;
+  var match = path.match(/\\/invoices\\/(ACC-SINV-[\\w-]+)/);
+  if (!match) return;
+
+  var invoiceName = match[1];
+  var checkoutUrl = '${webhookBase || 'WEBHOOK_BASE_URL_NOT_SET'}/checkout?invoice_name=' + encodeURIComponent(invoiceName);
+
+  function overridePayButtons() {
+    document.querySelectorAll('a').forEach(function (a) {
+      if (a.href && a.href.includes('make_payment_request')) {
+        a.href = checkoutUrl;
+        a.onclick = function (e) { e.preventDefault(); window.location.href = checkoutUrl; };
+      }
+    });
+    document.querySelectorAll('[onclick*="make_payment_request"]').forEach(function (el) {
+      el.removeAttribute('onclick');
+      el.onclick = function (e) { e.preventDefault(); window.location.href = checkoutUrl; };
+    });
+  }
+
+  overridePayButtons();
+  setTimeout(overridePayButtons, 500);
+  setTimeout(overridePayButtons, 1500);
+});
+`.trim();
+
+  const scriptName = 'PM - Portal Invoice Pay ACH Override';
+  const existing = await getDoc('Website Script', scriptName);
+
+  if (existing) {
+    await http.put(
+      `/api/resource/Website%20Script/${encodeURIComponent(scriptName)}`,
+      { script: scriptJs, enabled: isConfigured ? 1 : 0 }
+    );
+    console.log(`  ↺ Updated  Website Script: ${scriptName} (enabled=${isConfigured})`);
+  } else {
+    await http.post('/api/resource/Website%20Script', {
+      name: scriptName,
+      script: scriptJs,
+      enabled: isConfigured ? 1 : 0,
+    });
+    console.log(`  + Created  Website Script: ${scriptName} (enabled=${isConfigured})`);
+  }
+
+  if (!isConfigured) {
+    console.log('  ⚠  WEBHOOK_BASE_URL not set to a real URL.');
+    console.log('     Set it to your deployed Railway app URL and re-run to enable ACH payments.');
+  } else {
+    console.log(`  ✓ ACH pay button active → ${webhookBase}/checkout`);
+  }
 }
 
 // ── Main ─────────────────────────────────────────────────────────────────────
@@ -476,13 +549,27 @@ async function main() {
     console.error(`  ✗ Portal user setup failed: ${detail}`);
   }
 
+  try {
+    await configurePayButtonScript();
+  } catch (e) {
+    const detail = e.response?.data?.exception || e.message;
+    console.error(`  ✗ Pay button ACH script failed: ${detail}`);
+  }
+
+  const webhookBase = (process.env.WEBHOOK_BASE_URL || '').replace(/\/$/, '');
+  const achReady = webhookBase && webhookBase !== 'https://your-server.example.com';
+
   console.log('\n✓ Tenant portal setup complete.\n');
   console.log('Next steps:');
   console.log(`  1. Tenants log in at:             ${BASE}/login`);
   console.log(`  2. Rent invoices + payment links: ${BASE}/invoices`);
   console.log(`  3. Maintenance tickets:           ${BASE}/issues`);
-  console.log('  4. Add STRIPE_PUBLISHABLE_KEY + STRIPE_SECRET_KEY to .env');
-  console.log('     to activate the "Pay Now" button on invoices.\n');
+  if (!achReady) {
+    console.log('  4. Set WEBHOOK_BASE_URL to your Railway app URL and re-run to enable ACH');
+    console.log('     bank transfer on the portal Pay button.\n');
+  } else {
+    console.log(`  4. ACH bank transfer enabled via ${webhookBase}/checkout\n`);
+  }
 }
 
 // Export helpers for unit testing

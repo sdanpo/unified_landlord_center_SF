@@ -9,7 +9,7 @@
  *   scripts/setup-erpnext-integration.js
  */
 
-const { validate } = require('./config');
+const { validate, config } = require('./config');
 const logger = require('./logger');
 
 async function main() {
@@ -21,12 +21,20 @@ async function main() {
     process.exit(1);
   }
 
-  // ── 2. Telegram AI bot ───────────────────────────────────────────────────────
+  // ── 2. HTTP webhook server (Stripe checkout, Twilio inbound SMS) ─────────────
+  const { createServer } = require('./webhook/server');
+  const app  = createServer();
+  const port = config.webhook.port;
+  const httpServer = app.listen(port, () => {
+    logger.info('HTTP webhook server started', { port });
+  });
+
+  // ── 3. Telegram AI bot ───────────────────────────────────────────────────────
   const { createBot, stopBot } = require('./telegram/bot');
   createBot();
 
   logger.info('Unified Landlord Center started', {
-    mode: 'telegram-bot-only',
+    webhookPort: port,
     note: 'Scheduling and SMS notifications handled by ERPNext Server Scripts',
   });
 
@@ -34,6 +42,7 @@ async function main() {
   const shutdown = async (signal) => {
     logger.info(`Received ${signal} – shutting down`);
     await stopBot();
+    httpServer.close();
     process.exit(0);
   };
 
