@@ -111,16 +111,8 @@ const PORTAL_MENU_ITEMS = [
     reference_doctype: 'Sales Invoice',
     role: 'Customer',
   },
-  // Payment Entry portal page — standard ERPNext /payments portal route.
-  {
-    title: 'Payment History',
-    enabled: 1,
-    route: '/payments',
-    reference_doctype: 'Payment Entry',
-    role: 'Customer',
-  },
-  // Frappe Helpdesk app is installed on this instance; /helpdesk is the correct route.
-  // /issues remains as fallback for instances without the helpdesk app.
+  // /payments does NOT exist as a portal page in ERPNext v15 — omitted to avoid 404.
+  // Frappe Helpdesk app is installed; /helpdesk is the correct route for tickets.
   {
     title: 'Maintenance Tickets',
     enabled: 1,
@@ -135,13 +127,8 @@ const PORTAL_MENU_ITEMS = [
     reference_doctype: 'Address',
     role: 'Customer',
   },
-  {
-    title: 'My Profile',
-    enabled: 1,
-    route: '/me',
-    reference_doctype: '',
-    role: '',
-  },
+  // "My Profile" omitted — Frappe's built-in "My Account" (/me) is already shown
+  // in the standard portal header; a second entry would be a duplicate.
 ];
 
 async function configurePortalSettings() {
@@ -162,11 +149,18 @@ async function configurePortalSettings() {
     hide_standard_pages: 0,
     logout_on_session_expiry: 0,
     menu: mergedMenu,
-    custom_menu: [], // clear any stale custom entries (e.g. /leases, /payments)
+    custom_menu: [], // clear any stale custom entries (e.g. /leases, old /payments)
   });
-  console.log('  ✓ Portal pages configured: invoices (on), issues (on), addresses (on), profile (on)');
-  console.log('  ✓ Payment History disabled (no /payments page in standard ERPNext)');
-  console.log('  ✓ Custom menu cleared (removed /leases and duplicate /payments entries)');
+  console.log('  ✓ Portal pages: invoices, helpdesk, addresses (Payment History + My Profile removed)');
+
+  // Set the Customer role home page so tenants land on /invoices after login,
+  // not on /helpdesk (which the Helpdesk app sets as the Customer role default).
+  try {
+    await http.put('/api/resource/Role/Customer', { home_page: '/invoices' });
+    console.log('  ✓ Customer role home page → /invoices (fixes Helpdesk default landing)');
+  } catch (e) {
+    console.warn('  ⚠  Could not set Customer role home page:', e.response?.data?.exception || e.message);
+  }
 }
 
 // ── 2. Stripe Payment Gateway ─────────────────────────────────────────────────
@@ -232,8 +226,9 @@ async function configureStripe() {
 // to avoid accidentally locking them out when Custom DocPerm takes precedence.
 
 const PAYMENT_REQUEST_CUSTOM_PERMS = [
-  // Portal tenants: read only, scoped via User Permission (party = Customer)
-  { role: 'Customer',         read: 1, write: 0, create: 0, submit: 0, cancel: 0, delete: 0, if_owner: 0 },
+  // Portal tenants: read + submit so make_payment_request can call pr.submit().
+  // User Permission (party = Customer) scopes access to only their own records.
+  { role: 'Customer',         read: 1, write: 0, create: 0, submit: 1, cancel: 0, delete: 0, if_owner: 0 },
   // Standard back-office roles — must be re-declared once Custom DocPerm exists
   { role: 'Accounts User',    read: 1, write: 1, create: 1, submit: 0, cancel: 0, delete: 0, if_owner: 0 },
   { role: 'Accounts Manager', read: 1, write: 1, create: 1, submit: 1, cancel: 1, delete: 0, if_owner: 0 },
@@ -437,75 +432,120 @@ async function configureTenantPortalUsers() {
   );
 }
 
-// ── 6. Portal Pay Button — ACH override Website Script ───────────────────────
+// ── 6. Portal Pay Button — ACH override via Website Settings.head_html ───────
 // The standard ERPNext portal Pay button calls make_payment_request which
 // redirects to /stripe_checkout — an embedded Stripe card-only form.
-// This Website Script intercepts the button and instead routes through our
-// Node.js /checkout endpoint, which creates a Stripe-hosted Checkout Session
-// that offers both credit card AND ACH bank transfer.
+// We inject a <script> tag into Website Settings.head_html to intercept the
+// button and route through our Node.js /checkout endpoint instead, which
+// creates a Stripe-hosted Checkout Session offering both card AND ACH.
 //
-// The script is kept DISABLED until WEBHOOK_BASE_URL is set to the deployed
-// Node.js app URL (Railway, etc.).  Run setup-tenant-portal.js after deploying
-// to enable it automatically.
+// Website Settings.head_html is supported in all Frappe/ERPNext versions and
+// does not require the Website Script doctype (which is absent in some installs).
+//
+// The injection is skipped (head_html cleared of our block) when WEBHOOK_BASE_URL
+// is not set.  Re-run after deploying to Railway to activate ACH.
+
+const ACH_SCRIPT_MARKER = '<!-- PM-ACH-PAY-OVERRIDE -->';
 
 async function configurePayButtonScript() {
-  console.log('\n── 6. Portal Pay Button ACH Script ──────────────────────────');
+  console.log('\n── 6. Portal Pay Button ACH Override (head_html) ────────────');
 
   const webhookBase = (process.env.WEBHOOK_BASE_URL || '').replace(/\/$/, '');
   const isConfigured = webhookBase && webhookBase !== 'https://your-server.example.com';
 
-  const scriptJs = `
-// Intercept the portal "Pay" button to use Stripe Checkout with card + ACH support.
-frappe.ready(function () {
-  var path = window.location.pathname;
-  var match = path.match(/\\/invoices\\/(ACC-SINV-[\\w-]+)/);
-  if (!match) return;
+  // Fetch current Website Settings to preserve other head_html content
+  const { data: wsData } = await http.get('/api/resource/Website%20Settings/Website%20Settings');
+  const ws = wsData.data;
+  const existingHead = ws.head_html || '';
 
-  var invoiceName = match[1];
-  var checkoutUrl = '${webhookBase || 'WEBHOOK_BASE_URL_NOT_SET'}/checkout?invoice_name=' + encodeURIComponent(invoiceName);
-
-  function overridePayButtons() {
-    document.querySelectorAll('a').forEach(function (a) {
-      if (a.href && a.href.includes('make_payment_request')) {
-        a.href = checkoutUrl;
-        a.onclick = function (e) { e.preventDefault(); window.location.href = checkoutUrl; };
-      }
-    });
-    document.querySelectorAll('[onclick*="make_payment_request"]').forEach(function (el) {
-      el.removeAttribute('onclick');
-      el.onclick = function (e) { e.preventDefault(); window.location.href = checkoutUrl; };
-    });
-  }
-
-  overridePayButtons();
-  setTimeout(overridePayButtons, 500);
-  setTimeout(overridePayButtons, 1500);
-});
-`.trim();
-
-  const scriptName = 'PM - Portal Invoice Pay ACH Override';
-  const existing = await getDoc('Website Script', scriptName);
-
-  if (existing) {
-    await http.put(
-      `/api/resource/Website%20Script/${encodeURIComponent(scriptName)}`,
-      { script: scriptJs, enabled: isConfigured ? 1 : 0 }
-    );
-    console.log(`  ↺ Updated  Website Script: ${scriptName} (enabled=${isConfigured})`);
-  } else {
-    await http.post('/api/resource/Website%20Script', {
-      name: scriptName,
-      script: scriptJs,
-      enabled: isConfigured ? 1 : 0,
-    });
-    console.log(`  + Created  Website Script: ${scriptName} (enabled=${isConfigured})`);
-  }
+  // Strip any previous version of our block
+  const stripped = existingHead
+    .replace(new RegExp(`\\s*${ACH_SCRIPT_MARKER}[\\s\\S]*?${ACH_SCRIPT_MARKER}`, 'g'), '')
+    .trim();
 
   if (!isConfigured) {
-    console.log('  ⚠  WEBHOOK_BASE_URL not set to a real URL.');
-    console.log('     Set it to your deployed Railway app URL and re-run to enable ACH payments.');
-  } else {
-    console.log(`  ✓ ACH pay button active → ${webhookBase}/checkout`);
+    // Remove our script block if webhook URL is not configured
+    await http.put('/api/resource/Website%20Settings/Website%20Settings', {
+      head_html: stripped || '',
+    });
+    console.log('  ↺ Removed ACH pay button script (WEBHOOK_BASE_URL not configured)');
+    console.log('  ⚠  Set WEBHOOK_BASE_URL to your Railway app URL and re-run to enable ACH.');
+    return;
+  }
+
+  const scriptBlock = `
+${ACH_SCRIPT_MARKER}
+<script>
+/* Intercept the portal Pay button → Stripe Checkout with card + ACH */
+(function () {
+  function init() {
+    var path = window.location.pathname;
+    var match = path.match(/\\/invoices\\/(ACC-SINV-[\\w-]+)/);
+    if (!match) return;
+    var inv = match[1];
+    var url = '${webhookBase}/checkout?invoice_name=' + encodeURIComponent(inv);
+    function patch() {
+      document.querySelectorAll('a').forEach(function (a) {
+        if (a.href && a.href.indexOf('make_payment_request') !== -1) {
+          a.href = url;
+          a.onclick = function (e) { e.preventDefault(); location.href = url; };
+        }
+      });
+      document.querySelectorAll('[onclick*="make_payment_request"]').forEach(function (el) {
+        el.removeAttribute('onclick');
+        el.onclick = function (e) { e.preventDefault(); location.href = url; };
+      });
+    }
+    patch();
+    setTimeout(patch, 500);
+    setTimeout(patch, 1500);
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+</script>
+${ACH_SCRIPT_MARKER}`.trimStart();
+
+  const newHead = stripped ? stripped + '\n' + scriptBlock : scriptBlock;
+  await http.put('/api/resource/Website%20Settings/Website%20Settings', {
+    head_html: newHead,
+  });
+  console.log('  ✓ ACH pay button script injected into Website Settings.head_html');
+  console.log(`  ✓ Pay button routes to: ${webhookBase}/checkout`);
+}
+
+// ── 0. Cancel blocking Payment Requests ───────────────────────────────────────
+// When a "Requested" Payment Request exists for an invoice, make_payment_request
+// throws a 417 error ("Cannot cancel a submitted Payment Request") and the portal
+// renders it as a 403/404.  This step cancels any stale Requested PRQs so tenants
+// can pay their invoices.
+
+async function cancelBlockingPaymentRequests() {
+  console.log('\n── 0. Cancel Stale "Requested" Payment Requests ─────────────');
+
+  const prqs = await listDocs(
+    'Payment Request',
+    [['status', '=', 'Requested']],
+    ['name', 'status', 'party', 'grand_total']
+  );
+
+  if (prqs.length === 0) {
+    console.log('  ✓ No stale Payment Requests found — all clear.');
+    return;
+  }
+
+  console.log(`  Found ${prqs.length} stale "Requested" Payment Request(s).`);
+  for (const prq of prqs) {
+    try {
+      await http.put(
+        `/api/resource/Payment%20Request/${encodeURIComponent(prq.name)}`,
+        { docstatus: 2 }
+      );
+      console.log(`  ✓ Cancelled ${prq.name} (${prq.party} — $${prq.grand_total})`);
+    } catch (e) {
+      const detail = e.response?.data?.exception || e.message;
+      console.warn(`  ⚠  Could not cancel ${prq.name}: ${detail}`);
+    }
   }
 }
 
@@ -513,6 +553,13 @@ frappe.ready(function () {
 
 async function main() {
   console.log(`\nSetting up tenant portal on ${BASE}`);
+
+  try {
+    await cancelBlockingPaymentRequests();
+  } catch (e) {
+    const detail = e.response?.data?.exception || e.message;
+    console.error(`  ✗ Cancel blocking PRQs failed: ${detail}`);
+  }
 
   try {
     await configurePortalSettings();
@@ -573,7 +620,7 @@ async function main() {
 }
 
 // Export helpers for unit testing
-module.exports = { getDoc, upsert, listDocs, ensurePortalUser, PORTAL_MENU_ITEMS, PAYMENT_REQUEST_CUSTOM_PERMS, SALES_INVOICE_CUSTOM_PERMS };
+module.exports = { getDoc, upsert, listDocs, ensurePortalUser, PORTAL_MENU_ITEMS, PAYMENT_REQUEST_CUSTOM_PERMS, SALES_INVOICE_CUSTOM_PERMS, ACH_SCRIPT_MARKER };
 
 // Only run when invoked directly (not when required by tests)
 if (require.main === module) {
