@@ -12,7 +12,8 @@
  *   POST /webhooks/erpnext/contract-submitted      – ERPNext webhook → lease.created
  *   POST /webhooks/erpnext/contract-cancelled      – ERPNext webhook → lease.expired
  *   POST /webhooks/erpnext/application-submitted   – ERPNext Web Form submit → application.submitted
- *   POST /webhooks/dropbox-sign/completed          – Dropbox Sign "all signed" event → lease.signed
+ *   POST /webhooks/dropbox-sign/completed          – (removed — replaced by BoldSign)
+ *   POST /webhooks/boldsign/completed              – BoldSign "all signed" event → lease.signed
  *   POST /webhooks/smartmove/completed             – SmartMove screening done → notify landlord
  */
 
@@ -46,26 +47,38 @@ function captureRawBody(req, _res, buf) {
   req.rawBody = buf.toString();
 }
 
-// ── Dropbox Sign completion handler ───────────────────────────────────────────
+// ── BoldSign completion handler ────────────────────────────────────────────────
 //
 // Called after all parties have signed.  Downloads the PDF, attaches it to the
 // Lease record in ERPNext, marks signed_agreement_received = 1, then fires
 // a Telegram alert and SMS to the tenant.
+//
+// BoldSign webhook payload shape (eventType === "Completed"):
+//   {
+//     eventType: "Completed",
+//     data: {
+//       documentId: "...",
+//       signerDetails: [
+//         { signerRole: "Tenant",   signerEmail: "...", signerName: "..." },
+//         { signerRole: "Landlord", signerEmail: "...", signerName: "..." }
+//       ]
+//     }
+//   }
 
-async function handleDropboxSignCompleted(body) {
+async function handleBoldSignCompleted(body) {
   const { handle } = require('./handlers');
-  const dropboxSign = require('../api/dropboxsign');
-  const api         = require('../api/index');
+  const boldSign = require('../api/boldsign');
+  const api      = require('../api/index');
 
-  const sigReq   = body?.signature_request;
-  const sigReqId = sigReq?.signature_request_id;
-  if (!sigReqId) return;
+  const documentId = body?.data?.documentId;
+  if (!documentId) return;
 
-  // Find the Lease linked to this signature request by scanning open leases.
-  // The signature request metadata may contain the lease name if set during send;
-  // otherwise we match by signer email → tenant customer → lease.
-  const tenantSignerObj = (sigReq?.signatures || []).find(s => s.signer_role === 'Tenant');
-  const tenantEmail     = tenantSignerObj?.signer_email_address || '';
+  // Extract tenant email from signerDetails
+  const signerDetails   = body?.data?.signerDetails || [];
+  const tenantSignerObj = signerDetails.find(s =>
+    (s.signerRole || '').toLowerCase() === 'tenant'
+  );
+  const tenantEmail = tenantSignerObj?.signerEmail || '';
 
   let lease      = null;
   let tenantDoc  = null;
@@ -86,9 +99,9 @@ async function handleDropboxSignCompleted(body) {
   // Download signed PDF
   let pdfBuffer;
   try {
-    pdfBuffer = await dropboxSign.downloadSignedDocument(sigReqId);
+    pdfBuffer = await boldSign.downloadSignedDocument(documentId);
   } catch (err) {
-    logger.error('Dropbox Sign: PDF download failed', { sigReqId, error: err.message });
+    logger.error('BoldSign: PDF download failed', { documentId, error: err.message });
     pdfBuffer = null;
   }
 
@@ -115,7 +128,7 @@ async function handleDropboxSignCompleted(body) {
       });
 
       // ERPNext accepts base64-encoded files via upload_file JSON endpoint
-      const fileName = `lease-signed-${sigReqId}.pdf`;
+      const fileName = `lease-signed-${documentId}.pdf`;
       try {
         await erpHttp.post('/api/method/upload_file', {
           filename:   fileName,
@@ -125,16 +138,16 @@ async function handleDropboxSignCompleted(body) {
           is_private: 1,
           folder:     'Home/Attachments',
         });
-        logger.info('Dropbox Sign: signed PDF attached to Lease', { lease: lease.name });
+        logger.info('BoldSign: signed PDF attached to Lease', { lease: lease.name });
       } catch (err) {
-        logger.error('Dropbox Sign: could not attach PDF to Lease', { lease: lease.name, error: err.message });
+        logger.error('BoldSign: could not attach PDF to Lease', { lease: lease.name, error: err.message });
       }
 
       // Mark lease as signed
       try {
         await api.updateLease(lease.name, { signed_agreement_received: 1 });
       } catch (err) {
-        logger.error('Dropbox Sign: could not update signed_agreement_received', { error: err.message });
+        logger.error('BoldSign: could not update signed_agreement_received', { error: err.message });
       }
     }
   }
@@ -143,7 +156,7 @@ async function handleDropboxSignCompleted(body) {
   await handle({
     type: 'lease.signed',
     data: {
-      signatureRequestId: sigReqId,
+      documentId,
       tenantName:  tenantDoc?.customer_name || tenantEmail,
       tenantPhone: tenantDoc?.mobile_no     || '',
       unitName:    lease?.property          || '',
@@ -300,31 +313,58 @@ function makeWebhookRouter() {
     res.json({ received: true });
   });
 
-  // ── Dropbox Sign: all parties have signed ───────────────────────────────────
-  router.post('/dropbox-sign/completed', async (req, res) => {
-    // Dropbox Sign sends a JSON payload wrapped in { event: {...}, signature_request: {...} }
-    // Validate HMAC using the event hash if DROPBOX_SIGN_API_KEY is configured.
-    const apiKey = process.env.DROPBOX_SIGN_API_KEY || '';
-    const event  = req.body?.event;
+  // ── BoldSign: all parties have signed ───────────────────────────────────────
+  // Validation uses the X-BoldSign-Signature header:
+  //   Format:  "t=<unix-timestamp>, s0=<hex-hmac>"
+  //   Payload: "<timestamp>.<rawJsonBody>"
+  //   Secret:  BOLDSIGN_WEBHOOK_SECRET
+  router.post('/boldsign/completed', async (req, res) => {
+    const webhookSecret = process.env.BOLDSIGN_WEBHOOK_SECRET || '';
+    const sigHeader     = req.headers['x-boldsign-signature'] || '';
+    const rawBody       = req.rawBody || JSON.stringify(req.body);
 
-    if (apiKey && event?.event_hash) {
+    if (webhookSecret && sigHeader) {
+      // Parse "t=123456, s0=abc123"
+      const parts = {};
+      for (const chunk of sigHeader.split(',')) {
+        const eq = chunk.indexOf('=');
+        if (eq === -1) continue;
+        parts[chunk.slice(0, eq).trim()] = chunk.slice(eq + 1).trim();
+      }
+      const timestamp  = parts['t'];
+      const receivedSig = parts['s0'] || '';
+
+      if (!timestamp || !receivedSig) {
+        logger.warn('BoldSign webhook: malformed signature header');
+        return res.status(401).json({ error: 'Invalid signature header' });
+      }
+
+      // Reject events older than 5 minutes (replay protection)
+      if (Math.abs(Date.now() / 1000 - Number(timestamp)) > 300) {
+        logger.warn('BoldSign webhook: timestamp too old');
+        return res.status(401).json({ error: 'Webhook timestamp expired' });
+      }
+
+      const signedPayload = `${timestamp}.${rawBody}`;
       const expected = crypto
-        .createHmac('sha256', apiKey)
-        .update(String(event.event_time) + event.event_type)
+        .createHmac('sha256', webhookSecret)
+        .update(signedPayload)
         .digest('hex');
-      if (event.event_hash !== expected) {
-        logger.warn('Dropbox Sign webhook: invalid event_hash');
+
+      if (receivedSig.length !== expected.length ||
+          !crypto.timingSafeEqual(Buffer.from(receivedSig, 'hex'), Buffer.from(expected, 'hex'))) {
+        logger.warn('BoldSign webhook: invalid HMAC signature');
         return res.status(401).json({ error: 'Invalid signature' });
       }
     }
 
-    // Acknowledge immediately (Dropbox Sign expects "Hello API Event Received")
-    res.status(200).send('Hello API Event Received');
+    // Acknowledge immediately
+    res.status(200).json({ received: true });
 
-    if (event?.event_type !== 'signature_request_all_signed') return;
+    if (req.body?.eventType !== 'Completed') return;
 
-    setImmediate(() => handleDropboxSignCompleted(req.body).catch(err =>
-      logger.error('Dropbox Sign completed handler error', { error: err.message })
+    setImmediate(() => handleBoldSignCompleted(req.body).catch(err =>
+      logger.error('BoldSign completed handler error', { error: err.message })
     ));
   });
 

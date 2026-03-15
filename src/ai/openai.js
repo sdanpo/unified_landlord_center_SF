@@ -143,7 +143,7 @@ async function executeTool(toolCall) {
     }
 
     case 'send_lease_for_signature': {
-      const dropboxSign = require('../api/dropboxsign');
+      const dropboxSign = require('../api/boldsign');
       const tenants = await pmsClient.getTenants({ name: args.tenantName });
       if (!tenants.length) throw new Error(`No tenant found matching "${args.tenantName}"`);
       const tenant = tenants[0];

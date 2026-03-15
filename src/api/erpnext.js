@@ -295,6 +295,93 @@ class ERPNextClient {
     return this._put('CRM Lead', name, payload);
   }
 
+  // ─── Late Fee Invoices ─────────────────────────────────────────────────────
+
+  /**
+   * Check whether a late fee invoice has already been created for the given
+   * original rent invoice on the given calendar date (daily dedup guard).
+   *
+   * @param {string} originalInvoiceName  – e.g. "ACC-SINV-2026-00009"
+   * @param {string} date                 – YYYY-MM-DD (today)
+   * @returns {Promise<boolean>}          – true if a late fee invoice already exists
+   */
+  async getTodayLateFeeForInvoice(originalInvoiceName, date) {
+    const results = await this._list('Sales Invoice', {
+      fields: ['name'],
+      filters: [
+        ['custom_is_late_fee',       '=', 1],
+        ['custom_original_invoice',  '=', originalInvoiceName],
+        ['custom_late_fee_date',     '=', date],
+      ],
+    });
+    return results.length > 0;
+  }
+
+  /**
+   * Check whether ANY late fee invoice has ever been created for the given
+   * original rent invoice (used to decide if this is the "first day" for SMS).
+   *
+   * @param {string} originalInvoiceName
+   * @returns {Promise<boolean>}
+   */
+  async hasAnyLateFeeForInvoice(originalInvoiceName) {
+    const results = await this._list('Sales Invoice', {
+      fields: ['name'],
+      filters: [
+        ['custom_is_late_fee',      '=', 1],
+        ['custom_original_invoice', '=', originalInvoiceName],
+      ],
+    });
+    return results.length > 0;
+  }
+
+  /**
+   * Create a late fee Sales Invoice against a tenant.
+   *
+   * @param {Object} p
+   * @param {string} p.customer             – ERPNext Customer name
+   * @param {string} p.company              – ERPNext Company name
+   * @param {number} p.feeAmount            – Dollar amount of the late fee
+   * @param {string} p.today                – YYYY-MM-DD
+   * @param {string} p.originalInvoiceName  – Rent invoice this fee belongs to
+   * @param {string} [p.customUnit]         – Propagated from the rent invoice
+   * @param {string} [p.customProperty]     – Propagated from the rent invoice
+   * @param {string} [p.customLease]        – Propagated from the rent invoice
+   * @param {boolean} [p.autoSubmit]        – If true, docstatus=1 (submitted); else draft
+   * @returns {Promise<{ name: string, submitted: boolean }>}
+   */
+  async createLateFeeInvoice({
+    customer, company, feeAmount, today,
+    originalInvoiceName, customUnit, customProperty, customLease,
+    autoSubmit = false,
+  }) {
+    const payload = {
+      customer,
+      company,
+      posting_date:            today,
+      due_date:                today,
+      items: [{
+        item_code: 'Late Fee',
+        qty:       1,
+        rate:      feeAmount,
+      }],
+      custom_is_late_fee:       1,
+      custom_original_invoice:  originalInvoiceName,
+      custom_late_fee_date:     today,
+      ...(customUnit     ? { custom_unit:     customUnit }     : {}),
+      ...(customProperty ? { custom_property: customProperty } : {}),
+      ...(customLease    ? { custom_lease:    customLease }    : {}),
+      docstatus: autoSubmit ? 1 : 0,
+    };
+
+    const { data } = await this.http.post(
+      '/api/resource/Sales%20Invoice',
+      payload
+    );
+
+    return { name: data.data.name, submitted: autoSubmit };
+  }
+
   // ─── Tenants ──────────────────────────────────────────────────────────────
 
   /**

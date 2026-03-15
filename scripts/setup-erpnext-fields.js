@@ -97,6 +97,21 @@ const CUSTOM_FIELDS = [
   { dt: 'Lease', fieldname: 'custom_renewal_notice_sent', label: 'Renewal Notice Sent', fieldtype: 'Date',   insert_after: 'end_date' },
   { dt: 'Lease', fieldname: 'custom_renewal_action',      label: 'Renewal Action',      fieldtype: 'Select', insert_after: 'custom_renewal_notice_sent',
     options: '\nRenew\nVacating\nRent Increase' },
+
+  // ── Lease (late fee configuration) ────────────────────────────────────────
+  { dt: 'Lease', fieldname: 'custom_late_fee_grace_days',  label: 'Late Fee Grace Period (days)', fieldtype: 'Int',      insert_after: 'late_payment_interest_percentage', default: '5' },
+  { dt: 'Lease', fieldname: 'custom_late_fee_type',        label: 'Late Fee Type',                fieldtype: 'Select',   insert_after: 'custom_late_fee_grace_days',
+    options: 'Percentage\nFlat Amount', default: 'Percentage' },
+  { dt: 'Lease', fieldname: 'custom_late_fee_flat_amount', label: 'Daily Flat Late Fee ($)',      fieldtype: 'Currency', insert_after: 'custom_late_fee_type', default: '0' },
+
+  // ── Sales Invoice (late fee tracking / dedup) ──────────────────────────────
+  { dt: 'Sales Invoice', fieldname: 'custom_is_late_fee',       label: 'Is Late Fee',      fieldtype: 'Check',  insert_after: 'custom_lease', default: '0' },
+  {
+    dt: 'Sales Invoice', fieldname: 'custom_original_invoice', label: 'Original Invoice',
+    fieldtype: 'Link', options: 'Sales Invoice',
+    insert_after: 'custom_is_late_fee',
+  },
+  { dt: 'Sales Invoice', fieldname: 'custom_late_fee_date', label: 'Late Fee Date', fieldtype: 'Date', insert_after: 'custom_original_invoice' },
 ];
 
 /** Check whether a DocType exists on the ERPNext instance. */

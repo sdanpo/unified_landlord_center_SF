@@ -182,6 +182,150 @@ async function runLeaseRenewalCheck() {
   }
 }
 
+// ─── Daily Late Fee Check ─────────────────────────────────────────────────────
+
+/**
+ * For each overdue rent invoice, calculate and create a daily late fee Sales Invoice
+ * once the lease's grace period has elapsed.
+ *
+ * Deduplication: a late fee is only created once per invoice per calendar day
+ * (checked via custom_is_late_fee + custom_original_invoice + custom_late_fee_date).
+ *
+ * SMS is sent only on the first day a late fee is charged (not every day).
+ *
+ * Invoice submission behaviour is controlled by LATE_FEE_AUTO_SUBMIT env var:
+ *   "1"  → docstatus=1 (submitted, immediately visible on tenant's portal)
+ *   "0"  → docstatus=0 (draft, accountant must review before submitting)
+ */
+async function runLateFeeCheck() {
+  const notifyLandlord = getNotifyLandlord();
+  const sms            = getSms();
+  const autoSubmit     = process.env.LATE_FEE_AUTO_SUBMIT === '1';
+  const today          = new Date().toISOString().split('T')[0];
+
+  let invoices;
+  try {
+    invoices = await api.getOutstandingBalances();
+  } catch (err) {
+    logger.error('Late fee check: could not fetch overdue invoices', { error: err.message });
+    return;
+  }
+
+  if (!invoices || invoices.length === 0) return;
+
+  const applied = [];
+
+  for (const inv of invoices) {
+    // Need a linked Lease to get grace period and fee configuration
+    const leaseId = inv.custom_lease || inv.leaseId;
+    if (!leaseId) continue;
+
+    let lease;
+    try {
+      lease = await api.getLease(leaseId);
+    } catch (_) {
+      continue;
+    }
+
+    const graceDays = Number(lease.custom_late_fee_grace_days ?? 5);
+    const daysOD    = inv.daysOverdue ?? (inv.due_date ? daysOverdue(inv.due_date) : 0);
+
+    if (daysOD <= graceDays) continue; // still within grace period
+
+    // Calculate the fee for today
+    const outstandingAmt = Number(inv.amountDue ?? inv.outstanding_amount ?? 0);
+    const feeType        = lease.custom_late_fee_type || 'Percentage';
+    let feeAmount;
+    if (feeType === 'Flat Amount') {
+      feeAmount = Number(lease.custom_late_fee_flat_amount || 0);
+    } else {
+      // Percentage: use late_payment_interest_percentage (already on Lease)
+      const pct = Number(lease.late_payment_interest_percentage || 0);
+      feeAmount = outstandingAmt * (pct / 100);
+    }
+
+    if (!feeAmount || feeAmount <= 0) continue;
+
+    // Dedup: skip if we already created a late fee for this invoice today
+    let alreadyCharged;
+    try {
+      alreadyCharged = await api.getTodayLateFeeForInvoice(inv.name, today);
+    } catch (_) {
+      alreadyCharged = false;
+    }
+    if (alreadyCharged) continue;
+
+    // Is this the FIRST late fee day? (for SMS decision)
+    let isFirstDay = true;
+    try {
+      isFirstDay = !(await api.hasAnyLateFeeForInvoice(inv.name));
+    } catch (_) { /* default to sending SMS */ }
+
+    // Create the late fee invoice
+    let lateFeeInv;
+    try {
+      lateFeeInv = await api.createLateFeeInvoice({
+        customer:            inv.tenantId  || inv.customer,
+        company:             inv.company   || '',
+        feeAmount,
+        today,
+        originalInvoiceName: inv.name,
+        customUnit:          inv.unitName  || inv.custom_unit     || '',
+        customProperty:      inv.propertyAddress || inv.custom_property || '',
+        customLease:         leaseId,
+        autoSubmit,
+      });
+      logger.info('Late fee invoice created', { name: lateFeeInv.name, amount: feeAmount, invoice: inv.name });
+    } catch (err) {
+      logger.error('Failed to create late fee invoice', { invoice: inv.name, error: err.message });
+      continue;
+    }
+
+    applied.push({
+      tenantName: inv.tenantName || inv.customer_name,
+      unitName:   inv.unitName   || inv.custom_unit || '',
+      feeAmount,
+      daysOD,
+      invoiceName: lateFeeInv.name,
+    });
+
+    // SMS only on first day (avoid daily fatigue)
+    if (isFirstDay) {
+      const mobile = inv.mobile_no || '';
+      if (mobile) {
+        try {
+          const msg = sms.templates.lateFeeCharged({
+            unit:      inv.unitName || inv.custom_unit || '',
+            feeAmount,
+            totalDue:  outstandingAmt + feeAmount,
+            dayNumber: daysOD,
+          });
+          await sms.send(mobile, msg);
+        } catch (err) {
+          logger.error('Failed to send late fee SMS', { tenant: inv.tenantName, error: err.message });
+        }
+      }
+    }
+  }
+
+  logger.info('Late fee check complete', { invoices: invoices.length, applied: applied.length });
+
+  if (applied.length === 0) return;
+
+  // Telegram daily summary to landlord
+  try {
+    const submitNote = autoSubmit ? '(submitted — tenant balances updated)' : '(draft — review in ERPNext before submitting)';
+    const lines = applied.map(a =>
+      `  • ${a.tenantName} — ${a.unitName}: $${a.feeAmount.toFixed(2)} (day ${a.daysOD} overdue)`
+    ).join('\n');
+    await notifyLandlord(
+      `💸 Late fees applied today: ${applied.length} invoice(s) ${submitNote}\n${lines}`
+    );
+  } catch (err) {
+    logger.error('Failed to send Telegram late fee summary', { error: err.message });
+  }
+}
+
 // ─── Stale Work Order Check ───────────────────────────────────────────────────
 
 /**
@@ -215,4 +359,4 @@ async function runStaleWorkOrderCheck() {
   }
 }
 
-module.exports = { runOverdueRentCheck, runStaleWorkOrderCheck, runLeaseRenewalCheck };
+module.exports = { runOverdueRentCheck, runStaleWorkOrderCheck, runLeaseRenewalCheck, runLateFeeCheck };

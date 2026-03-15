@@ -103,6 +103,17 @@ const templates = {
   },
 
   /**
+   * Sent to the tenant on the FIRST day a late fee is charged for an invoice.
+   * Subsequent daily fees do NOT trigger additional SMS (to avoid fatigue).
+   * @param {{ unit: string, feeAmount: number, totalDue: number, dayNumber: number }} p
+   */
+  lateFeeCharged({ unit, feeAmount, totalDue, dayNumber }) {
+    return `Late fee of $${feeAmount.toFixed(2)} added to your balance at ${unit} ` +
+           `(day ${dayNumber} overdue). Total now due: $${totalDue.toFixed(2)}. ` +
+           'Pay at your tenant portal to stop daily charges.';
+  },
+
+  /**
    * Work order notification sent to a vendor/contractor.
    * @param {{ ticketId: string, subject: string, unitAddress: string, tenantName: string, tenantPhone: string }} p
    */

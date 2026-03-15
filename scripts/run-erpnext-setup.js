@@ -275,6 +275,37 @@ _send_telegram("\\n".join(lines))
   },
 ];
 
+// ── Ensure "Late Fee" Item exists ─────────────────────────────────────────────
+//
+// The runLateFeeCheck() scheduler creates Sales Invoices with item_code = "Late Fee".
+// This item must exist in ERPNext Items as a service item (non-stock).
+
+async function ensureLateFeeItem() {
+  console.log('\n── Late Fee Item ────────────────────────────────────────────');
+  const fullHttp = axios.create({
+    baseURL: BASE,
+    headers: { Authorization: `token ${KEY}:${SEC}`, 'Content-Type': 'application/json' },
+    timeout: 30_000,
+  });
+
+  try {
+    await fullHttp.get('/api/resource/Item/Late%20Fee');
+    console.log('  ✓ Item "Late Fee" already exists');
+  } catch (e) {
+    if (e.response?.status !== 404) throw e;
+    await fullHttp.post('/api/resource/Item', {
+      item_code:           'Late Fee',
+      item_name:           'Late Fee',
+      item_group:          'Services',
+      is_sales_item:       1,
+      is_stock_item:       0,
+      include_item_in_manufacturing: 0,
+      description:         'Automatically generated daily late fee for overdue rent invoices.',
+    });
+    console.log('  + Created Item "Late Fee"');
+  }
+}
+
 // ── Main ─────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -293,6 +324,12 @@ async function main() {
     } catch (err) {
       console.warn('  ⚠  Could not update Telegram User Settings:', err.message);
     }
+  }
+
+  try {
+    await ensureLateFeeItem();
+  } catch (err) {
+    console.warn('  ⚠  Could not ensure Late Fee item:', err.message);
   }
 
   for (const { type, name, payload } of scripts) {
