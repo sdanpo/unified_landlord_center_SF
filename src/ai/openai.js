@@ -169,8 +169,8 @@ async function executeTool(toolCall) {
 
       return {
         sent: true,
-        tenantEmail:       tenant.email_id,
-        signatureRequestId: signRequest.signatureRequestId,
+        tenantEmail: tenant.email_id,
+        documentId:  signRequest.documentId,
       };
     }
 

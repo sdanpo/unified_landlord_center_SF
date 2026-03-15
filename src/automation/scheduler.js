@@ -62,7 +62,17 @@ async function runOverdueRentCheck() {
   logger.info('Overdue rent check', { total: invoices.length, overdue: overdue.length });
 
   for (const inv of overdue) {
-    const phone = inv.mobile_no || '';
+    // Sales Invoice has no phone field — look it up from the Customer record.
+    let phone = '';
+    try {
+      const tenant = await api.getTenant(inv.tenantId || inv.customer);
+      phone = tenant?.mobile_no || '';
+    } catch (_) { /* phone is optional — continue even if lookup fails */ }
+
+    if (!phone) {
+      logger.warn('Overdue SMS skipped: no mobile_no for tenant', { tenant: inv.tenantName });
+    }
+
     try {
       const msg = sms.templates.rentOverdue({
         unit:            inv.unitName,
@@ -291,7 +301,12 @@ async function runLateFeeCheck() {
 
     // SMS only on first day (avoid daily fatigue)
     if (isFirstDay) {
-      const mobile = inv.mobile_no || '';
+      // Sales Invoice has no phone field — look it up from the Customer record.
+      let mobile = '';
+      try {
+        const tenant = await api.getTenant(inv.tenantId || inv.customer);
+        mobile = tenant?.mobile_no || '';
+      } catch (_) { /* phone optional */ }
       if (mobile) {
         try {
           const msg = sms.templates.lateFeeCharged({

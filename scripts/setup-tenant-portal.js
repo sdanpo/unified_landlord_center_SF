@@ -928,40 +928,40 @@ async function configureApplyWebForm() {
     success_message: 'We received your application and will be in touch within 2 business days.',
     web_form_fields: [
       // Personal Information
-      { fieldtype: 'Section Break', label: 'Personal Information' },
-      { fieldname: 'first_name',               label: 'First Name',       fieldtype: 'Data',       reqd: 1 },
-      { fieldname: 'last_name',                label: 'Last Name',        fieldtype: 'Data',       reqd: 1 },
-      { fieldname: 'email_id',                 label: 'Email',            fieldtype: 'Data',       reqd: 1 },
-      { fieldname: 'mobile_no',                label: 'Phone',            fieldtype: 'Data',       reqd: 1 },
-      { fieldname: 'custom_date_of_birth',     label: 'Date of Birth',    fieldtype: 'Date',       reqd: 1 },
+      { fieldname: 'sb_personal',              label: 'Personal Information',  fieldtype: 'Section Break' },
+      { fieldname: 'first_name',               label: 'First Name',            fieldtype: 'Data',       reqd: 1 },
+      { fieldname: 'last_name',                label: 'Last Name',             fieldtype: 'Data',       reqd: 1 },
+      { fieldname: 'email_id',                 label: 'Email',                 fieldtype: 'Data',       reqd: 1 },
+      { fieldname: 'mobile_no',                label: 'Phone',                 fieldtype: 'Data',       reqd: 1 },
+      { fieldname: 'custom_date_of_birth',     label: 'Date of Birth',         fieldtype: 'Date',       reqd: 1 },
       // Current Housing
-      { fieldtype: 'Section Break', label: 'Current Housing' },
+      { fieldname: 'sb_housing',               label: 'Current Housing',       fieldtype: 'Section Break' },
       { fieldname: 'custom_current_address',         label: 'Current Address',             fieldtype: 'Small Text', reqd: 1 },
       { fieldname: 'custom_monthly_rent_paid',        label: 'Monthly Rent Paid Currently', fieldtype: 'Currency',   reqd: 1 },
       { fieldname: 'custom_current_landlord_name',   label: 'Current Landlord Name',       fieldtype: 'Data' },
       { fieldname: 'custom_current_landlord_phone',  label: 'Current Landlord Phone',      fieldtype: 'Data' },
       // Employment
-      { fieldtype: 'Section Break', label: 'Employment' },
+      { fieldname: 'sb_employment',            label: 'Employment',            fieldtype: 'Section Break' },
       { fieldname: 'company',                      label: 'Employer Name',         fieldtype: 'Data',     reqd: 1 },
       { fieldname: 'designation',                  label: 'Job Title',             fieldtype: 'Data' },
       { fieldname: 'custom_monthly_gross_income',  label: 'Monthly Gross Income',  fieldtype: 'Currency', reqd: 1 },
       { fieldname: 'custom_employment_start_date', label: 'Employment Start Date', fieldtype: 'Date' },
       // Rental History
-      { fieldtype: 'Section Break', label: 'Rental History' },
+      { fieldname: 'sb_rental_history',        label: 'Rental History',        fieldtype: 'Section Break' },
       { fieldname: 'custom_eviction_history',     label: 'Have you ever been evicted?',   fieldtype: 'Select', reqd: 1, options: '\nYes\nNo' },
       { fieldname: 'custom_broken_lease_history', label: 'Have you ever broken a lease?', fieldtype: 'Select', reqd: 1, options: '\nYes\nNo' },
       // Occupants
-      { fieldtype: 'Section Break', label: 'Occupants' },
+      { fieldname: 'sb_occupants',             label: 'Occupants',             fieldtype: 'Section Break' },
       { fieldname: 'custom_number_of_occupants', label: 'Number of Occupants', fieldtype: 'Int',    reqd: 1 },
       { fieldname: 'custom_has_pets',            label: 'Any Pets?',           fieldtype: 'Select', reqd: 1, options: '\nYes\nNo' },
       { fieldname: 'custom_pet_description',     label: 'Pet Description (breed, size)', fieldtype: 'Small Text' },
       // Consent
-      { fieldtype: 'Section Break', label: 'Consent' },
-      { fieldname: 'custom_consent_background_check', label: 'I authorize a background and credit check', fieldtype: 'Check', reqd: 1 },
+      { fieldname: 'sb_consent',               label: 'Consent',               fieldtype: 'Section Break' },
+      { fieldname: 'custom_consent_background_check', label: 'I authorize a background and credit check',    fieldtype: 'Check', reqd: 1 },
       { fieldname: 'custom_consent_accuracy',         label: 'I certify all information provided is accurate', fieldtype: 'Check', reqd: 1 },
-      // Hidden defaults
-      { fieldname: 'lead_source', label: 'Lead Source', fieldtype: 'Data', hidden: 1, default: 'Online Application' },
-      { fieldname: 'status',      label: 'Status',      fieldtype: 'Data', hidden: 1, default: 'New Application' },
+      // Hidden defaults — set lead_source and status automatically on submit
+      { fieldname: 'lead_source', label: 'Lead Source', fieldtype: 'Select', hidden: 1, default: 'Online Application' },
+      { fieldname: 'status',      label: 'Status',      fieldtype: 'Select', hidden: 1, default: 'Open' },
     ],
   });
 
