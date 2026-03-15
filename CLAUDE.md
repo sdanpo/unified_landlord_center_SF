@@ -9,12 +9,13 @@ Your goal is to minize the work of both the implementer giving you instructions 
 
 ## codebase
 
-- Code should be thoroughly checked.
-- You are using ERPNEXT on Frappe which has multiple modules. Try not to reinvent the wheel but rather use apps and modules for ERPNext to simplify your work.
+- Code should be thoroughly checked. Tests should be administered for any new features.
+- You are using ERPNEXT V15 on Frappe which has multiple modules. Try not to reinvent the wheel but rather use apps and modules for ERPNext to simplify your work.
 
 ## Standards
 
-- Always opt for using a well working product with paid API rather than building everything from scratch. 
-
+- Always opt for using a well working product with paid API rather than building everything from scratch.
+- Logs should be written to help you debug the code and find issues in no time.
+- Try and seprate the code into logical units so that it will be readable and maintainable.
 
 ## Notes
