@@ -432,6 +432,71 @@ async function configureTenantPortalUsers() {
   );
 }
 
+// ── 6a. Show All Invoices (paid + unpaid) on the portal /invoices page ────────
+// ERPNext's built-in /invoices portal page filters by outstanding_amount > 0,
+// which hides paid invoices.  We inject a tiny script into Website Settings.
+// head_html that patches frappe.call before the PortalList initialises, stripping
+// the outstanding_amount filter so ALL submitted invoices (paid and unpaid) are
+// shown.  The script is always active — independent of WEBHOOK_BASE_URL.
+
+const ALL_INV_MARKER = '<!-- PM-ALL-INVOICES -->';
+
+async function configureShowAllInvoices() {
+  console.log('\n── 6a. Show All Invoices on Portal (head_html) ───────────────');
+
+  const { data: wsData } = await http.get('/api/resource/Website%20Settings/Website%20Settings');
+  const ws = wsData.data;
+  const existingHead = ws.head_html || '';
+
+  // Strip any previous version of our block
+  const stripped = existingHead
+    .replace(new RegExp(`\\s*${ALL_INV_MARKER}[\\s\\S]*?${ALL_INV_MARKER}`, 'g'), '')
+    .trim();
+
+  const scriptBlock = `
+${ALL_INV_MARKER}
+<script>
+/* Patch frappe.call on /invoices to remove outstanding_amount filter so
+   paid invoices are shown alongside unpaid ones. */
+(function () {
+  if (window.location.pathname !== '/invoices') return;
+  var done = false;
+  function patch() {
+    if (done || !window.frappe || !frappe.call) return;
+    done = true;
+    var _orig = frappe.call.bind(frappe);
+    frappe.call = function (opts) {
+      try {
+        if (
+          opts && opts.method &&
+          opts.method.indexOf('get_list') !== -1 &&
+          opts.args && opts.args.doctype === 'Sales Invoice' &&
+          Array.isArray(opts.args.filters)
+        ) {
+          opts.args.filters = opts.args.filters.filter(function (f) {
+            return !(Array.isArray(f) && f[1] === 'outstanding_amount');
+          });
+        }
+      } catch (e) { /* ignore */ }
+      return _orig(opts);
+    };
+  }
+  var t = setInterval(function () {
+    if (window.frappe && frappe.call) { patch(); clearInterval(t); }
+  }, 30);
+  setTimeout(function () { clearInterval(t); }, 10000);
+  document.addEventListener('DOMContentLoaded', patch);
+})();
+</script>
+${ALL_INV_MARKER}`.trimStart();
+
+  const newHead = stripped ? stripped + '\n' + scriptBlock : scriptBlock;
+  await http.put('/api/resource/Website%20Settings/Website%20Settings', {
+    head_html: newHead,
+  });
+  console.log('  ✓ "Show all invoices" patch injected into Website Settings.head_html');
+}
+
 // ── 6. Portal Pay Button — ACH override via Website Settings.head_html ───────
 // The standard ERPNext portal Pay button calls make_payment_request which
 // redirects to /stripe_checkout — an embedded Stripe card-only form.
@@ -653,6 +718,13 @@ async function main() {
   }
 
   try {
+    await configureShowAllInvoices();
+  } catch (e) {
+    const detail = e.response?.data?.exception || e.message;
+    console.error(`  ✗ Show-all-invoices patch failed: ${detail}`);
+  }
+
+  try {
     await configurePayButtonScript();
   } catch (e) {
     const detail = e.response?.data?.exception || e.message;
@@ -676,7 +748,7 @@ async function main() {
 }
 
 // Export helpers for unit testing
-module.exports = { getDoc, upsert, listDocs, ensurePortalUser, PORTAL_MENU_ITEMS, PAYMENT_REQUEST_CUSTOM_PERMS, SALES_INVOICE_CUSTOM_PERMS, ACH_SCRIPT_MARKER };
+module.exports = { getDoc, upsert, listDocs, ensurePortalUser, PORTAL_MENU_ITEMS, PAYMENT_REQUEST_CUSTOM_PERMS, SALES_INVOICE_CUSTOM_PERMS, ACH_SCRIPT_MARKER, ALL_INV_MARKER };
 
 // Only run when invoked directly (not when required by tests)
 if (require.main === module) {
