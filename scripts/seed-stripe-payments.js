@@ -295,9 +295,16 @@ async function main() {
         ['parent', 'in', ['Credit Card', 'Stripe', 'Bank Transfer', 'Wire Transfer']],
         ['company', '=', COMPANY],
       ], ['default_account', 'parent']);
-      if (mopRows.length > 0 && mopRows[0].default_account) {
-        bankAccount = mopRows[0].default_account;
-        console.log(`\n── 5. ERPNext Bank Account ─ ${bankAccount}  (from Mode of Payment: ${mopRows[0].parent})`);
+      for (const row of mopRows) {
+        if (!row.default_account) continue;
+        const valid = await validateAccount(row.default_account);
+        if (valid) {
+          bankAccount = row.default_account;
+          console.log(`\n── 5. ERPNext Bank Account ─ ${bankAccount}  (from Mode of Payment: ${row.parent})`);
+          break;
+        } else {
+          console.log(`\n  ⚠  Mode of Payment "${row.parent}" default account "${row.default_account}" is not a Bank/Cash account — skipping`);
+        }
       }
     } catch (_) { /* ignore – fall through */ }
   }
@@ -306,6 +313,17 @@ async function main() {
     bankAccount = `Cash - ${ABBR}`;
     console.log(`\n── 5. ERPNext Bank Account ─ ${bankAccount}  (default Cash; set STRIPE_BANK_ACCOUNT to a Bank/Cash account to override)`);
   }
+
+  // ── 5b. Cost center (required for any P&L account in GL entries) ─────────────
+  let costCenter = `Main - ${ABBR}`;
+  try {
+    const ccRows = await erpList('Cost Center', [
+      ['company',  '=', COMPANY],
+      ['is_group', '=', 0],
+    ], ['name']);
+    if (ccRows.length > 0) costCenter = ccRows[0].name;
+  } catch (_) { /* use default */ }
+  console.log(`   Cost Center          ─ ${costCenter}`);
 
   // ── 6. Create records month by month ────────────────────────────────────────
   console.log('\n── 6. Payment Records ─────────────────────────────────────────');
@@ -436,6 +454,7 @@ async function main() {
             party:           erpCustomerId,
             posting_date:    p.payment_date,
             company:         COMPANY,
+            cost_center:     costCenter,
             paid_from:       `Debtors - ${ABBR}`,
             paid_to:         bankAccount,
             paid_amount:     MONTHLY_RENT,
