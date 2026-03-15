@@ -671,6 +671,125 @@ function makePaymentHistoryRouter() {
 
 // ── App factories ─────────────────────────────────────────────────────────────
 
+// ── One-time admin seed endpoint ──────────────────────────────────────────────
+//
+// POST /admin/seed-payments?token=<ADMIN_SEED_TOKEN>
+//
+// Creates fictitious past Stripe PaymentIntents for Rotem Porat directly
+// inside the running Railway process (avoids SSH outbound-network restrictions).
+// Protected by a secret token set in ADMIN_SEED_TOKEN Railway env var.
+// Unset ADMIN_SEED_TOKEN after first use to disable the endpoint.
+
+function makeSeedPaymentsRouter() {
+  const TENANT_EMAIL  = 'chamiporat@gmail.com';
+  const TENANT_NAME   = 'Rotem Porat';
+  const RENT_CENTS    = 320_000; // $3,200.00
+  const PAST_PAYMENTS = [
+    { month: 'June 2024',      invoice: 'ACC-SINV-2024-00001', pm: 'pm_card_visa'       },
+    { month: 'July 2024',      invoice: 'ACC-SINV-2024-00002', pm: 'pm_card_mastercard' },
+    { month: 'August 2024',    invoice: 'ACC-SINV-2024-00003', pm: 'pm_card_visa'       },
+    { month: 'September 2024', invoice: 'ACC-SINV-2024-00004', pm: 'pm_card_mastercard' },
+    { month: 'October 2024',   invoice: 'ACC-SINV-2024-00005', pm: 'pm_card_visa'       },
+    { month: 'November 2024',  invoice: 'ACC-SINV-2024-00006', pm: 'pm_card_mastercard' },
+    { month: 'December 2024',  invoice: 'ACC-SINV-2024-00007', pm: 'pm_card_visa'       },
+    { month: 'January 2025',   invoice: 'ACC-SINV-2025-00001', pm: 'pm_card_mastercard' },
+    { month: 'February 2025',  invoice: 'ACC-SINV-2025-00002', pm: 'pm_card_visa'       },
+  ];
+
+  const router = express.Router();
+
+  router.post('/admin/seed-payments', async (req, res) => {
+    const adminToken = process.env.ADMIN_SEED_TOKEN || '';
+    if (!adminToken) {
+      return res.status(403).json({ error: 'ADMIN_SEED_TOKEN env var is not set' });
+    }
+    if (req.query.token !== adminToken) {
+      return res.status(403).json({ error: 'Invalid token' });
+    }
+
+    const stripeSecretKey = config.stripe?.secretKey || process.env.STRIPE_SECRET_KEY || '';
+    if (!stripeSecretKey || !stripeSecretKey.startsWith('sk_test_')) {
+      return res.status(500).json({ error: 'STRIPE_SECRET_KEY must be a test key (sk_test_...)' });
+    }
+
+    const { HttpsProxyAgent } = require('https-proxy-agent');
+    const proxyUrl   = process.env.https_proxy || process.env.HTTPS_PROXY || '';
+    const httpsAgent = proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined;
+
+    const stripeHttp = axios.create({
+      baseURL: 'https://api.stripe.com',
+      auth:    { username: stripeSecretKey, password: '' },
+      timeout: 20_000,
+      ...(httpsAgent ? { httpsAgent, proxy: false } : {}),
+    });
+
+    async function sPost(path, fields) {
+      const params = new URLSearchParams();
+      for (const [k, v] of Object.entries(fields)) params.append(k, String(v));
+      const { data } = await stripeHttp.post(path, params.toString(), {
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      });
+      return data;
+    }
+
+    try {
+      // Find or create Stripe customer
+      const { data: custList } = await stripeHttp.get(
+        `/v1/customers?email=${encodeURIComponent(TENANT_EMAIL)}&limit=1`
+      );
+      let customerId;
+      if (custList.data && custList.data.length > 0) {
+        customerId = custList.data[0].id;
+        await sPost(`/v1/customers/${customerId}`, { name: TENANT_NAME });
+      } else {
+        const cust = await sPost('/v1/customers', { email: TENANT_EMAIL, name: TENANT_NAME });
+        customerId = cust.id;
+      }
+
+      // Create each PaymentIntent
+      const results = [];
+      for (const p of PAST_PAYMENTS) {
+        try {
+          const pi = await sPost('/v1/payment_intents', {
+            amount:                   RENT_CENTS,
+            currency:                 'usd',
+            customer:                 customerId,
+            payment_method:           p.pm,
+            'payment_method_types[]': 'card',
+            confirm:                  'true',
+            description:              `Rent \u2013 ${p.invoice} (${p.month})`,
+            'metadata[invoice]':      p.invoice,
+            'metadata[tenant]':       TENANT_NAME,
+            'metadata[month]':        p.month,
+          });
+          results.push({ month: p.month, id: pi.id, status: pi.status });
+          logger.info(`Seeded payment: ${p.month} — ${pi.id}`);
+        } catch (err) {
+          const msg = err.response?.data?.error?.message || err.message;
+          results.push({ month: p.month, error: msg });
+          logger.warn(`Seed payment failed: ${p.month} — ${msg}`);
+        }
+      }
+
+      const ok  = results.filter(r => !r.error).length;
+      const bad = results.filter(r =>  r.error).length;
+      res.json({
+        customer:     customerId,
+        created:      ok,
+        failed:       bad,
+        results,
+        dashboardUrl: `https://dashboard.stripe.com/test/customers/${customerId}`,
+      });
+    } catch (err) {
+      const msg = err.response?.data?.error?.message || err.message;
+      logger.error('seed-payments fatal', { error: msg });
+      res.status(500).json({ error: msg });
+    }
+  });
+
+  return router;
+}
+
 /**
  * createWebhookApp() — used by tests and directly by src/index.js.
  * Mounts:
@@ -685,6 +804,7 @@ function createWebhookApp() {
   app.use('/webhooks', makeStripeWebhookRouter());
   app.use('/', makeCheckoutRouter());
   app.use('/', makePaymentHistoryRouter());
+  app.use('/', makeSeedPaymentsRouter());
   return app;
 }
 
