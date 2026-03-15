@@ -137,6 +137,43 @@ async function erpSubmit(doctype, name) {
   return r.data.data;
 }
 
+/**
+ * Ensure a fiscal year covering `year` (e.g. 2024) exists in ERPNext.
+ * Uses Jan 1 – Dec 31 of that calendar year.
+ */
+async function ensureFiscalYear(year) {
+  const startDate = `${year}-01-01`;
+  const endDate   = `${year}-12-31`;
+  const yearName  = String(year);
+
+  // Check if already present by year_start_date overlap
+  const existing = await erpList('Fiscal Year', [
+    ['year_start_date', '<=', startDate],
+    ['year_end_date',   '>=', startDate],
+  ], ['name', 'year_start_date', 'year_end_date']);
+
+  if (existing.length > 0) return existing[0].name;
+
+  try {
+    const fy = await erpCreate('Fiscal Year', {
+      year:            yearName,
+      year_start_date: startDate,
+      year_end_date:   endDate,
+      companies: [{ company: COMPANY }],
+    });
+    console.log(`  Created fiscal year : ${fy.name} (${startDate} → ${endDate})`);
+    return fy.name;
+  } catch (e) {
+    // May already exist under a different name – ignore duplicate errors
+    const msg = e.response?.data?.exception || e.message;
+    if (msg.includes('DuplicateEntryError') || msg.includes('already exists')) {
+      console.log(`  Fiscal year ${yearName} already exists (skipped)`);
+      return yearName;
+    }
+    throw e;
+  }
+}
+
 // ── Main ───────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -211,20 +248,42 @@ async function main() {
     }
   }
 
-  // ── 4. ERPNext Bank account ──────────────────────────────────────────────────
+  // ── 4. ERPNext Fiscal Years ──────────────────────────────────────────────────
+  console.log('\n── 4. ERPNext Fiscal Years ────────────────────────────────────');
+  const yearsNeeded = [...new Set(PAST_PAYMENTS.map(p => p.posting_date.slice(0, 4)))];
+  for (const yr of yearsNeeded) {
+    await ensureFiscalYear(Number(yr));
+  }
+  console.log(`  Fiscal years verified : ${yearsNeeded.join(', ')}`);
+
+  // ── 5. ERPNext Bank account ──────────────────────────────────────────────────
   let bankAccount = process.env.STRIPE_BANK_ACCOUNT || '';
   if (!bankAccount) {
+    // Prefer an account explicitly typed "Bank" that isn't a group
     const bankRows = await erpList('Account', [
       ['company',      '=', COMPANY],
       ['account_type', '=', 'Bank'],
       ['is_group',     '=', 0],
-    ]);
-    bankAccount = bankRows.length > 0 ? bankRows[0].name : `Cash - ${ABBR}`;
-  }
-  console.log(`\n── 4. ERPNext Bank Account ─ ${bankAccount}`);
+      ['root_type',    '=', 'Asset'],
+    ], ['name', 'account_type']);
 
-  // ── 5. Create records month by month ────────────────────────────────────────
-  console.log('\n── 5. Payment Records ─────────────────────────────────────────');
+    if (bankRows.length > 0) {
+      bankAccount = bankRows[0].name;
+    } else {
+      // Fall back to any Cash account
+      const cashRows = await erpList('Account', [
+        ['company',      '=', COMPANY],
+        ['account_type', '=', 'Cash'],
+        ['is_group',     '=', 0],
+        ['root_type',    '=', 'Asset'],
+      ], ['name']);
+      bankAccount = cashRows.length > 0 ? cashRows[0].name : `Cash - ${ABBR}`;
+    }
+  }
+  console.log(`\n── 5. ERPNext Bank Account ─ ${bankAccount}`);
+
+  // ── 6. Create records month by month ────────────────────────────────────────
+  console.log('\n── 6. Payment Records ─────────────────────────────────────────');
   let stripeCreated = 0;
   let erpCreated    = 0;
 
