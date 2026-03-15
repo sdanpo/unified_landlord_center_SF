@@ -233,6 +233,7 @@ async function main() {
 
     // ── Stripe PaymentIntent ────────────────────────────────────────────────
     let stripeStatus = '–';
+    let stripePaymentIntentId = null;
     try {
       const pi = await stripePost('/v1/payment_intents', {
         amount:                   MONTHLY_RENT_CENTS,
@@ -246,6 +247,7 @@ async function main() {
         'metadata[tenant]':       TENANT_NAME,
         'metadata[month]':        p.month,
       });
+      stripePaymentIntentId = pi.id; // e.g. "pi_3Abc123..."
       stripeStatus = pi.status;
       stripeCreated++;
     } catch (err) {
@@ -314,7 +316,9 @@ async function main() {
             paid_amount:     MONTHLY_RENT,
             received_amount: MONTHLY_RENT,
             mode_of_payment: 'Credit Card',
-            reference_no:    `STRIPE-${p.invoice}`,
+            // Store the real Stripe PaymentIntent ID so the portal can link to the receipt.
+            // Falls back to a placeholder if Stripe creation failed for this month.
+            reference_no:    stripePaymentIntentId || `STRIPE-${p.invoice}`,
             reference_date:  p.payment_date,
             remarks:         `Stripe ${brand} – ${p.month} rent`,
             references: [{
