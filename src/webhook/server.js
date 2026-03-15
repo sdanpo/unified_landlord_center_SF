@@ -333,6 +333,16 @@ async function recordStripePaymentInERPNext(erpHttp, { invoiceName, amountCents,
     `/api/resource/Sales%20Invoice/${encodeURIComponent(invoiceName)}`
   );
   const inv = invData.data;
+  const company = inv.company;
+
+  // Resolve cost center for the company (required when any P&L account appears in GL entries)
+  let costCenter = '';
+  try {
+    const { data: ccData } = await erpHttp.get(
+      `/api/resource/Cost%20Center?filters=${encodeURIComponent(JSON.stringify([['company','=',company],['is_group','=',0]]))}&fields=${encodeURIComponent('["name"]')}&limit=1`
+    );
+    costCenter = ccData.data?.[0]?.name || '';
+  } catch (_) { /* proceed without – ERPNext will error only if the account is P&L */ }
 
   const pePayload = {
     payment_type:      'Receive',
@@ -350,6 +360,7 @@ async function recordStripePaymentInERPNext(erpHttp, { invoiceName, amountCents,
     }],
     remarks: `Stripe ${paymentMethod === 'us_bank_account' ? 'ACH' : 'card'} payment — session ${stripeSessionId}`,
     docstatus: bankAccount ? 1 : 0,
+    ...(costCenter ? { cost_center: costCenter } : {}),
     ...(bankAccount ? { paid_to: bankAccount } : {}),
   };
 
