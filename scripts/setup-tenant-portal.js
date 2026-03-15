@@ -909,6 +909,65 @@ async function configureMyDocsPage() {
   console.log('  ✓ Web Page ready: /my-docs');
 }
 
+// ── 6e. Rental Application Web Form at /apply ─────────────────────────────────
+// Public (no login required) Web Form that creates a CRM Lead on submit.
+// Custom fields on CRM Lead (created by setup-erpnext-fields.js) capture
+// all application-specific data.
+
+async function configureApplyWebForm() {
+  console.log('\n── 6e. Rental Application Web Form (/apply) ─────────────────');
+
+  await upsert('Web Form', 'Rental Application', {
+    title: 'Rental Application',
+    route: 'apply',
+    doc_type: 'CRM Lead',
+    login_required: 0,
+    published: 1,
+    allow_multiple: 1,
+    button_label: 'Submit Application',
+    success_message: 'We received your application and will be in touch within 2 business days.',
+    web_form_fields: [
+      // Personal Information
+      { fieldtype: 'Section Break', label: 'Personal Information' },
+      { fieldname: 'first_name',               label: 'First Name',       fieldtype: 'Data',       reqd: 1 },
+      { fieldname: 'last_name',                label: 'Last Name',        fieldtype: 'Data',       reqd: 1 },
+      { fieldname: 'email_id',                 label: 'Email',            fieldtype: 'Data',       reqd: 1 },
+      { fieldname: 'mobile_no',                label: 'Phone',            fieldtype: 'Data',       reqd: 1 },
+      { fieldname: 'custom_date_of_birth',     label: 'Date of Birth',    fieldtype: 'Date',       reqd: 1 },
+      // Current Housing
+      { fieldtype: 'Section Break', label: 'Current Housing' },
+      { fieldname: 'custom_current_address',         label: 'Current Address',             fieldtype: 'Small Text', reqd: 1 },
+      { fieldname: 'custom_monthly_rent_paid',        label: 'Monthly Rent Paid Currently', fieldtype: 'Currency',   reqd: 1 },
+      { fieldname: 'custom_current_landlord_name',   label: 'Current Landlord Name',       fieldtype: 'Data' },
+      { fieldname: 'custom_current_landlord_phone',  label: 'Current Landlord Phone',      fieldtype: 'Data' },
+      // Employment
+      { fieldtype: 'Section Break', label: 'Employment' },
+      { fieldname: 'company',                      label: 'Employer Name',         fieldtype: 'Data',     reqd: 1 },
+      { fieldname: 'designation',                  label: 'Job Title',             fieldtype: 'Data' },
+      { fieldname: 'custom_monthly_gross_income',  label: 'Monthly Gross Income',  fieldtype: 'Currency', reqd: 1 },
+      { fieldname: 'custom_employment_start_date', label: 'Employment Start Date', fieldtype: 'Date' },
+      // Rental History
+      { fieldtype: 'Section Break', label: 'Rental History' },
+      { fieldname: 'custom_eviction_history',     label: 'Have you ever been evicted?',   fieldtype: 'Select', reqd: 1, options: '\nYes\nNo' },
+      { fieldname: 'custom_broken_lease_history', label: 'Have you ever broken a lease?', fieldtype: 'Select', reqd: 1, options: '\nYes\nNo' },
+      // Occupants
+      { fieldtype: 'Section Break', label: 'Occupants' },
+      { fieldname: 'custom_number_of_occupants', label: 'Number of Occupants', fieldtype: 'Int',    reqd: 1 },
+      { fieldname: 'custom_has_pets',            label: 'Any Pets?',           fieldtype: 'Select', reqd: 1, options: '\nYes\nNo' },
+      { fieldname: 'custom_pet_description',     label: 'Pet Description (breed, size)', fieldtype: 'Small Text' },
+      // Consent
+      { fieldtype: 'Section Break', label: 'Consent' },
+      { fieldname: 'custom_consent_background_check', label: 'I authorize a background and credit check', fieldtype: 'Check', reqd: 1 },
+      { fieldname: 'custom_consent_accuracy',         label: 'I certify all information provided is accurate', fieldtype: 'Check', reqd: 1 },
+      // Hidden defaults
+      { fieldname: 'lead_source', label: 'Lead Source', fieldtype: 'Data', hidden: 1, default: 'Online Application' },
+      { fieldname: 'status',      label: 'Status',      fieldtype: 'Data', hidden: 1, default: 'New Application' },
+    ],
+  });
+
+  console.log('  ✓ Web Form ready: /apply');
+}
+
 // ── 0. Cancel blocking Payment Requests ───────────────────────────────────────
 // When a "Requested" Payment Request exists for an invoice, make_payment_request
 // throws a 417 error ("Cannot cancel a submitted Payment Request") and the portal
@@ -1026,6 +1085,13 @@ async function main() {
     console.warn('  ⚠  configureMyDocsPage error (non-fatal):', detail);
   }
 
+  try {
+    await configureApplyWebForm();
+  } catch (e) {
+    const detail = e.response?.data?.exception || e.message;
+    console.warn('  ⚠  configureApplyWebForm error (non-fatal):', detail);
+  }
+
   const webhookBase = (process.env.WEBHOOK_BASE_URL || '').replace(/\/$/, '');
   const achReady = webhookBase && webhookBase !== 'https://your-server.example.com';
 
@@ -1037,6 +1103,7 @@ async function main() {
   console.log(`  4. Maintenance tickets:           ${BASE}/helpdesk`);
   console.log(`  5. Lease details:                 ${BASE}/my-lease`);
   console.log(`  6. Lease documents:               ${BASE}/my-docs`);
+  console.log(`  7. Rental application form:       ${BASE}/apply`);
   if (!achReady) {
     console.log('  5. Set WEBHOOK_BASE_URL to your Railway app URL and re-run to enable ACH');
     console.log('     bank transfer on the portal Pay button.\n');
@@ -1046,7 +1113,7 @@ async function main() {
 }
 
 // Export helpers for unit testing
-module.exports = { getDoc, upsert, listDocs, ensurePortalUser, PORTAL_MENU_ITEMS, PAYMENT_REQUEST_CUSTOM_PERMS, SALES_INVOICE_CUSTOM_PERMS, ACH_SCRIPT_MARKER, ALL_INV_MARKER, configureMyInvoicesPage, configurePaidInvoicesPage, configureMyLeasePage, configureMyDocsPage };
+module.exports = { getDoc, upsert, listDocs, ensurePortalUser, PORTAL_MENU_ITEMS, PAYMENT_REQUEST_CUSTOM_PERMS, SALES_INVOICE_CUSTOM_PERMS, ACH_SCRIPT_MARKER, ALL_INV_MARKER, configureMyInvoicesPage, configurePaidInvoicesPage, configureMyLeasePage, configureMyDocsPage, configureApplyWebForm };
 
 // Only run when invoked directly (not when required by tests)
 if (require.main === module) {

@@ -217,7 +217,7 @@ const tools = [
     function: {
       name: 'send_lease_for_signature',
       description:
-        'Send the lease agreement to a tenant for e-signature via Dropbox Sign.  ' +
+        'Send the lease agreement to a tenant for e-signature via BoldSign.  ' +
         'Pre-fills the lease PDF template with the tenant\'s current lease data ' +
         '(unit, dates, rent, deposit) and requests signatures from both the tenant ' +
         'and the landlord.  Use when the landlord says "send lease to [tenant name]".',

@@ -49,7 +49,7 @@ You have real-time access to the property management database and can answer que
 - Lease renewals and expiry pipeline (get_lease_renewals)
 - Vendor/contractor directory (get_vendors)
 - Assigning vendors to work orders (assign_vendor)
-- Sending leases for e-signature via Dropbox Sign (send_lease_for_signature)
+- Sending leases for e-signature via BoldSign (send_lease_for_signature)
 - Sending screening invitations to rental applicants via SmartMove (send_screening_invite)
 - Viewing the rental applicant pipeline (get_applicants)
 
