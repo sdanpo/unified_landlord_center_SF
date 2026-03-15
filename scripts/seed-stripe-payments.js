@@ -259,12 +259,35 @@ async function main() {
   // ── 5. ERPNext Bank account ──────────────────────────────────────────────────
   //
   // Strategy (in order):
-  //   a) STRIPE_BANK_ACCOUNT env var – explicit override by the operator
-  //   b) Account linked to Mode of Payment "Credit Card" for this company –
-  //      guaranteed valid for Payment Entry because ERPNext itself configured it
+  //   a) STRIPE_BANK_ACCOUNT env var – validated against ERPNext first
+  //   b) Account linked to Mode of Payment "Credit Card"/"Stripe" for this company
   //   c) Cash - <ABBR> – always present and always accepted by Payment Entry
   //
-  let bankAccount = process.env.STRIPE_BANK_ACCOUNT || '';
+  const VALID_ACCOUNT_TYPES = ['Bank', 'Cash'];
+
+  async function validateAccount(name) {
+    const rows = await erpList('Account', [
+      ['name',      '=', name],
+      ['is_group',  '=', 0],
+    ], ['name', 'account_type']);
+    if (!rows.length) return false;
+    return VALID_ACCOUNT_TYPES.includes(rows[0].account_type);
+  }
+
+  let bankAccount = '';
+
+  if (process.env.STRIPE_BANK_ACCOUNT) {
+    const candidate = process.env.STRIPE_BANK_ACCOUNT;
+    const valid = await validateAccount(candidate);
+    if (valid) {
+      bankAccount = candidate;
+      console.log(`\n── 5. ERPNext Bank Account ─ ${bankAccount}  (from STRIPE_BANK_ACCOUNT)`);
+    } else {
+      console.log(`\n  ⚠  STRIPE_BANK_ACCOUNT="${candidate}" is not a valid Bank/Cash account in ERPNext`);
+      console.log(`     (account_type must be "Bank" or "Cash" – fix it in Chart of Accounts, or unset the env var)`);
+      console.log(`     Falling back to auto-detection…`);
+    }
+  }
 
   if (!bankAccount) {
     try {
@@ -281,11 +304,7 @@ async function main() {
 
   if (!bankAccount) {
     bankAccount = `Cash - ${ABBR}`;
-    console.log(`\n── 5. ERPNext Bank Account ─ ${bankAccount}  (default Cash; set STRIPE_BANK_ACCOUNT env var to override)`);
-  } else if (!process.env.STRIPE_BANK_ACCOUNT && !bankAccount.startsWith('Cash')) {
-    console.log(`\n── 5. ERPNext Bank Account ─ ${bankAccount}`);
-  } else if (process.env.STRIPE_BANK_ACCOUNT) {
-    console.log(`\n── 5. ERPNext Bank Account ─ ${bankAccount}  (from STRIPE_BANK_ACCOUNT)`);
+    console.log(`\n── 5. ERPNext Bank Account ─ ${bankAccount}  (default Cash; set STRIPE_BANK_ACCOUNT to a Bank/Cash account to override)`);
   }
 
   // ── 6. Create records month by month ────────────────────────────────────────
