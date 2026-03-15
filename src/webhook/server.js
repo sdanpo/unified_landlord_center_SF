@@ -503,6 +503,172 @@ async function onPaymentConfirmed(session, paymentMethod, handleErpEvent) {
   logger.info('Stripe payment confirmed', { invoice: invoiceName, amount, method: methodLabel, peNote });
 }
 
+// ── Payment History page ──────────────────────────────────────────────────────
+//
+// GET /payment-history?email=<tenant-email>
+//
+// Looks up the Stripe customer by email, fetches their succeeded PaymentIntents
+// (expanding latest_charge for the Stripe-hosted receipt URL), and renders a
+// self-contained Bootstrap HTML page the tenant can view in a new tab.
+
+function escHtml(s) {
+  return String(s || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function renderPaymentHistoryHtml(tenantName, payments) {
+  const rows = payments.length === 0
+    ? '<tr><td colspan="5" class="text-center py-5 text-muted">No payment records found.</td></tr>'
+    : payments.map(p => `
+      <tr>
+        <td class="pl-4">${escHtml(p.date)}</td>
+        <td class="text-muted small">${escHtml(p.description)}</td>
+        <td><strong>${escHtml(p.amount)}</strong></td>
+        <td><span class="badge badge-light border">${escHtml(p.method)}</span></td>
+        <td>
+          <span class="badge badge-success">Paid</span>
+          ${p.receiptUrl
+            ? ` <a href="${escHtml(p.receiptUrl)}" target="_blank" rel="noopener"
+                   class="btn btn-sm btn-outline-secondary ml-1"
+                   style="font-size:11px;padding:1px 8px;">Receipt ↗</a>`
+            : ''}
+        </td>
+      </tr>`).join('');
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Payment History – ${escHtml(tenantName)}</title>
+  <link rel="stylesheet"
+        href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css"
+        integrity="sha384-xOolHFLEh07PJGoPkLv1IbcEPTNtaed2xpHsD9ESMhqIYd0nLMwNLD69Npy4HI+N"
+        crossorigin="anonymous">
+  <style>
+    body { background: #f4f6f9; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .page-card { background: #fff; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,.08); overflow: hidden; }
+    thead th { background: #f8f9fa; font-size: 11px; font-weight: 600; text-transform: uppercase;
+               letter-spacing: .6px; color: #868e96; border-top: none; }
+    td { vertical-align: middle !important; }
+    .badge-success { background: #28a745; }
+  </style>
+</head>
+<body>
+<div class="container" style="max-width:820px;padding:40px 15px 60px">
+  <div class="mb-4">
+    <a href="javascript:history.back()" class="text-secondary small">← Back</a>
+  </div>
+  <div class="page-card">
+    <div class="px-4 pt-4 pb-3 border-bottom">
+      <h5 class="mb-0 font-weight-bold">Payment History</h5>
+      <div class="text-muted small mt-1">${escHtml(tenantName)}</div>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-hover mb-0">
+        <thead>
+          <tr>
+            <th class="pl-4">Date</th>
+            <th>Description</th>
+            <th>Amount</th>
+            <th>Method</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  </div>
+  <p class="text-center text-muted mt-4" style="font-size:12px;">
+    Payment records secured &amp; verified by Stripe &nbsp;·&nbsp;
+    Questions? Contact your property manager.
+  </p>
+</div>
+</body>
+</html>`;
+}
+
+function makePaymentHistoryRouter() {
+  const router = express.Router();
+
+  router.get('/payment-history', async (req, res) => {
+    const email = (req.query.email || '').trim().toLowerCase();
+    if (!email || !email.includes('@')) {
+      return res.status(400).send('Valid email query parameter is required');
+    }
+
+    const stripeSecretKey = config.stripe?.secretKey || process.env.STRIPE_SECRET_KEY;
+    if (!stripeSecretKey) {
+      return res.status(500).send('Payment gateway not configured');
+    }
+
+    try {
+      const { HttpsProxyAgent } = require('https-proxy-agent');
+      const proxyUrl   = process.env.https_proxy || process.env.HTTPS_PROXY || '';
+      const httpsAgent = proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined;
+
+      const stripeHttp = axios.create({
+        baseURL: 'https://api.stripe.com',
+        auth:    { username: stripeSecretKey, password: '' },
+        timeout: 15_000,
+        ...(httpsAgent ? { httpsAgent, proxy: false } : {}),
+      });
+
+      // Find Stripe customer by email
+      const { data: custList } = await stripeHttp.get(
+        `/v1/customers?email=${encodeURIComponent(email)}&limit=1`
+      );
+
+      const payments = [];
+      let displayName = email;
+
+      if (custList.data && custList.data.length > 0) {
+        const customer = custList.data[0];
+        displayName = customer.name || customer.email || email;
+
+        // Fetch PaymentIntents with latest_charge expanded (for receipt_url)
+        const { data: piList } = await stripeHttp.get(
+          `/v1/payment_intents?customer=${customer.id}&limit=100&expand[]=data.latest_charge`
+        );
+
+        for (const pi of (piList.data || [])) {
+          if (pi.status !== 'succeeded') continue;
+          const charge = pi.latest_charge;
+          const brand  = charge?.payment_method_details?.card?.brand || '';
+          const method = pi.metadata?.method === 'us_bank_account'
+            ? 'ACH Bank Transfer'
+            : `Card${brand ? ` (${brand.charAt(0).toUpperCase() + brand.slice(1)})` : ''}`;
+
+          payments.push({
+            date: new Date(pi.created * 1000).toLocaleDateString('en-US', {
+              year: 'numeric', month: 'long', day: 'numeric',
+            }),
+            description: pi.description || pi.metadata?.invoice || '',
+            amount:      `$${(pi.amount / 100).toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+            method,
+            receiptUrl: charge?.receipt_url || null,
+          });
+        }
+      }
+
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.send(renderPaymentHistoryHtml(displayName, payments));
+
+    } catch (err) {
+      logger.error('Payment history error', {
+        email,
+        error: err.response?.data || err.message,
+      });
+      res.status(500).send('Could not load payment history – please try again');
+    }
+  });
+
+  return router;
+}
+
 // ── App factories ─────────────────────────────────────────────────────────────
 
 /**
@@ -518,6 +684,7 @@ function createWebhookApp() {
   app.use('/webhooks', makeWebhookRouter());
   app.use('/webhooks', makeStripeWebhookRouter());
   app.use('/', makeCheckoutRouter());
+  app.use('/', makePaymentHistoryRouter());
   return app;
 }
 
