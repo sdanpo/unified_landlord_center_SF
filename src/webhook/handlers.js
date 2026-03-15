@@ -14,6 +14,8 @@
  *   workorder.created  – HD Ticket opened
  *   lease.created      – Lease / Property Agreement submitted
  *   lease.expired      – Lease / Property Agreement cancelled
+ *   application.submitted – New rental application via /apply Web Form
+ *   lease.signed       – All parties have completed e-signature (Dropbox Sign)
  */
 
 const logger = require('../logger');
@@ -76,6 +78,38 @@ async function handle(event) {
         `📋 Lease cancelled: ${data.tenantName} — ${data.unitName}`
       );
       break;
+
+    case 'application.submitted':
+      await notifyLandlord(
+        `📋 New rental application:\n` +
+        `  Name: ${data.firstName} ${data.lastName}\n` +
+        `  Email: ${data.email}   Phone: ${data.phone}\n` +
+        `  Income: $${data.monthlyIncome}/mo   Occupants: ${data.occupants}\n` +
+        `  Eviction history: ${data.hasEviction}\n` +
+        `Reply "screen ${data.leadName}" to send a SmartMove screening request.`
+      );
+      break;
+
+    case 'lease.signed': {
+      const sms = require('../sms/dispatcher');
+      // SMS to tenant confirming fully-executed lease
+      if (data.tenantPhone) {
+        try {
+          const msg = sms.templates.leaseSignedConfirmation({
+            unit:      data.unitName  || '',
+            startDate: data.startDate || '',
+          });
+          await sms.send(data.tenantPhone, msg);
+        } catch (err) {
+          logger.error('Failed to send lease-signed SMS', { error: err.message });
+        }
+      }
+      await notifyLandlord(
+        `✅ Lease signed: ${data.tenantName} — ${data.unitName}\n` +
+        '  All parties have signed. PDF saved to ERPNext Lease record.'
+      );
+      break;
+    }
 
     default:
       logger.warn('Unknown webhook event type', { type });

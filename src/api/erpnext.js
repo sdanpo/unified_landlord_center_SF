@@ -185,6 +185,116 @@ class ERPNextClient {
     return this._get('Lease', name);
   }
 
+  /**
+   * Return Active leases whose end_date falls within `daysAhead` days from today.
+   * @param {number} [daysAhead=90]
+   */
+  async getExpiringLeases(daysAhead = 90) {
+    const leases = await this._list('Lease', {
+      fields: ['*'],
+      orderBy: 'end_date asc',
+    });
+
+    const today   = new Date(); today.setHours(0, 0, 0, 0);
+    const horizon = new Date(today.getTime() + daysAhead * 86_400_000);
+
+    return leases.filter(l => {
+      if (l.lease_status !== 'Active') return false;
+      if (!l.end_date) return false;
+      const end = new Date(l.end_date);
+      return end >= today && end <= horizon;
+    });
+  }
+
+  /**
+   * Update a Lease field (e.g. custom_renewal_notice_sent, custom_renewal_action).
+   * @param {string} name    – Lease document name
+   * @param {Object} payload – fields to update
+   */
+  async updateLease(name, payload) {
+    return this._put('Lease', name, payload);
+  }
+
+  /**
+   * Return file attachments on a Lease record (signed PDFs, addenda, etc.).
+   * @param {string} leaseName – ERPNext Lease document name
+   */
+  async getLeaseFiles(leaseName) {
+    return this._list('File', {
+      fields: ['name', 'file_name', 'file_url', 'creation'],
+      filters: [
+        ['attached_to_doctype', '=', 'Lease'],
+        ['attached_to_name',    '=', leaseName],
+      ],
+      orderBy: 'creation desc',
+    });
+  }
+
+  // ─── Vendors (Supplier doctype) ────────────────────────────────────────────
+
+  /**
+   * List vendors (Suppliers), optionally filtered by trade.
+   * @param {Object} [params]
+   * @param {string} [params.trade]  – e.g. "Plumbing", "Electrical"
+   */
+  async getVendors({ trade } = {}) {
+    const all = await this._list('Supplier', {
+      fields: ['name', 'supplier_name', 'custom_trade', 'custom_rating', 'custom_sms_number', 'custom_license_number'],
+      orderBy: 'supplier_name asc',
+    });
+
+    return all.filter(v => {
+      if (trade && (v.custom_trade || '').toLowerCase() !== trade.toLowerCase()) return false;
+      return true;
+    });
+  }
+
+  /** Get a single Supplier (vendor) by ERPNext name. */
+  async getVendor(name) {
+    return this._get('Supplier', name);
+  }
+
+  /**
+   * Assign a vendor to an HD Ticket maintenance work order.
+   * @param {string} ticketName  – HD Ticket document name
+   * @param {string} vendorName  – Supplier document name
+   */
+  async assignVendor(ticketName, vendorName) {
+    return this._put('HD Ticket', ticketName, { custom_assigned_vendor: vendorName });
+  }
+
+  // ─── CRM Leads (rental applicants) ────────────────────────────────────────
+
+  /**
+   * List CRM Leads that came from the rental application form.
+   * @param {Object} [params]
+   * @param {string} [params.status]  – CRM Lead status (e.g. "New Application")
+   */
+  async getCRMLeads({ status } = {}) {
+    const filters = [['lead_source', '=', 'Online Application']];
+    if (status) filters.push(['status', '=', status]);
+
+    return this._list('CRM Lead', {
+      fields: ['name', 'first_name', 'last_name', 'email_id', 'mobile_no', 'status', 'creation'],
+      filters,
+      orderBy: 'creation desc',
+    });
+  }
+
+  /** Get a single CRM Lead by name. */
+  async getCRMLead(name) {
+    return this._get('CRM Lead', name);
+  }
+
+  /**
+   * Update a CRM Lead (e.g. change status after screening).
+   * @param {string} name
+   * @param {Object} payload
+   */
+  async updateCRMLead(name, payload) {
+    return this._put('CRM Lead', name, payload);
+  }
+
   // ─── Tenants ──────────────────────────────────────────────────────────────
 
   /**

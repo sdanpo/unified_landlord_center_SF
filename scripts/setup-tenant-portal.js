@@ -134,6 +134,20 @@ const PORTAL_MENU_ITEMS = [
     reference_doctype: 'Address',
     role: 'Customer',
   },
+  {
+    title: 'My Lease',
+    enabled: 1,
+    route: '/my-lease',
+    reference_doctype: 'Lease',
+    role: 'Customer',
+  },
+  {
+    title: 'My Documents',
+    enabled: 1,
+    route: '/my-docs',
+    reference_doctype: 'File',
+    role: 'Customer',
+  },
   // "My Profile" omitted — Frappe's built-in "My Account" (/me) is already shown
   // in the standard portal header; a second entry would be a duplicate.
 ];
@@ -741,6 +755,160 @@ ${ACH_SCRIPT_MARKER}`.trimStart();
   console.log(`  ✓ Payment history sidebar link: ${webhookBase}/payment-history`);
 }
 
+// ── 6c. My Lease Web Page at /my-lease ────────────────────────────────────────
+// Shows the logged-in tenant's current active lease: unit, dates, rent,
+// days remaining, and a "Request Renewal" button that opens a helpdesk ticket.
+
+async function configureMyLeasePage() {
+  console.log('\n── 6c. My Lease Web Page (/my-lease) ─────────────────────────');
+
+  const pageBody = [
+    '<div id="my-lease-wrap"><p class="text-muted">Loading lease information&hellip;</p></div>',
+    '<script>',
+    '(function () {',
+    '  var wrap = document.getElementById("my-lease-wrap");',
+    '  var params = new URLSearchParams({',
+    '    filters: JSON.stringify([["lease_status","=","Active"]]),',
+    '    fields:  JSON.stringify(["name","property","start_date","end_date","lease_status"]),',
+    '    limit_page_length: "1",',
+    '    order_by: "start_date desc"',
+    '  });',
+    '  fetch("/api/resource/Lease?" + params.toString(), {',
+    '    credentials: "include",',
+    '    headers: { "Accept": "application/json" }',
+    '  })',
+    '  .then(function (res) { return res.json(); })',
+    '  .then(function (data) {',
+    '    var leases = data.data || [];',
+    '    if (!leases.length) {',
+    '      wrap.innerHTML = \'<p class="text-muted mt-3">No active lease found.</p>\';',
+    '      return;',
+    '    }',
+    '    var l = leases[0];',
+    '    var today = new Date(); today.setHours(0,0,0,0);',
+    '    var end = new Date(l.end_date);',
+    '    var daysLeft = Math.ceil((end - today) / 86400000);',
+    '    var color = daysLeft > 90 ? "green" : (daysLeft > 30 ? "orange" : "red");',
+    '    var fmtDate = function(d) {',
+    '      return new Date(d).toLocaleDateString("en-US", { year:"numeric", month:"long", day:"numeric" });',
+    '    };',
+    '    wrap.innerHTML =',
+    '      \'<div class="card" style="max-width:540px;margin:0 auto;">\' +',
+    '      \'<div class="card-body">\' +',
+    '      \'<h5 class="card-title mb-3">Active Lease</h5>\' +',
+    '      \'<dl class="row mb-0">\' +',
+    '      \'<dt class="col-sm-4">Unit</dt><dd class="col-sm-8">\' + (l.property || "—") + \'</dd>\' +',
+    '      \'<dt class="col-sm-4">Start date</dt><dd class="col-sm-8">\' + fmtDate(l.start_date) + \'</dd>\' +',
+    '      \'<dt class="col-sm-4">End date</dt><dd class="col-sm-8">\' + fmtDate(l.end_date) + \'</dd>\' +',
+    '      \'<dt class="col-sm-4">Days remaining</dt>\' +',
+    '      \'<dd class="col-sm-8"><span class="indicator-pill \' + color + \'">\' + daysLeft + \' days</span></dd>\' +',
+    '      \'</dl>\' +',
+    '      \'<a href="/helpdesk/new-ticket?subject=Lease+Renewal+Request&custom_ticket_type=Lease+Renewal" \' +',
+    '        \'class="btn btn-primary btn-sm mt-3">Request Renewal</a>\' +',
+    '      \'</div></div>\';',
+    '  })',
+    '  .catch(function () {',
+    '    wrap.innerHTML = \'<p class="text-danger mt-3">Could not load lease. Please log in and try again.</p>\';',
+    '  });',
+    '})();',
+    '<\/script>',
+  ].join('\n');
+
+  await upsert('Web Page', 'my-lease', {
+    title: 'My Lease',
+    route: 'my-lease',
+    published: 1,
+    content_type: 'HTML',
+    main_section_html: pageBody,
+    show_sidebar: 1,
+    full_width: 1,
+  });
+
+  console.log('  ✓ Web Page ready: /my-lease');
+}
+
+// ── 6d. My Documents Web Page at /my-docs ─────────────────────────────────────
+// Lists files attached to the tenant's Lease record (signed PDFs, addenda,
+// inspection reports) with download links.
+
+async function configureMyDocsPage() {
+  console.log('\n── 6d. My Documents Web Page (/my-docs) ──────────────────────');
+
+  const pageBody = [
+    '<div id="my-docs-wrap"><p class="text-muted">Loading documents&hellip;</p></div>',
+    '<script>',
+    '(function () {',
+    '  var wrap = document.getElementById("my-docs-wrap");',
+    '  // Step 1: find the tenant\'s active lease',
+    '  var leaseParams = new URLSearchParams({',
+    '    filters: JSON.stringify([["lease_status","=","Active"]]),',
+    '    fields:  JSON.stringify(["name"]),',
+    '    limit_page_length: "1"',
+    '  });',
+    '  fetch("/api/resource/Lease?" + leaseParams.toString(), {',
+    '    credentials: "include", headers: { "Accept": "application/json" }',
+    '  })',
+    '  .then(function (r) { return r.json(); })',
+    '  .then(function (data) {',
+    '    var leases = data.data || [];',
+    '    if (!leases.length) {',
+    '      wrap.innerHTML = \'<p class="text-muted mt-3">No active lease found.</p>\';',
+    '      return;',
+    '    }',
+    '    var leaseName = leases[0].name;',
+    '    // Step 2: fetch files attached to this lease',
+    '    var fileParams = new URLSearchParams({',
+    '      filters: JSON.stringify([["attached_to_doctype","=","Lease"],["attached_to_name","=",leaseName]]),',
+    '      fields:  JSON.stringify(["name","file_name","file_url","creation"]),',
+    '      limit_page_length: "50",',
+    '      order_by: "creation desc"',
+    '    });',
+    '    return fetch("/api/resource/File?" + fileParams.toString(), {',
+    '      credentials: "include", headers: { "Accept": "application/json" }',
+    '    }).then(function (r) { return r.json(); });',
+    '  })',
+    '  .then(function (data) {',
+    '    if (!data) return;',
+    '    var files = data.data || [];',
+    '    if (!files.length) {',
+    '      wrap.innerHTML = \'<p class="text-muted mt-3">No documents on file yet.</p>\';',
+    '      return;',
+    '    }',
+    '    var rows = files.map(function (f) {',
+    '      var date = new Date(f.creation).toLocaleDateString("en-US", { year:"numeric", month:"short", day:"numeric" });',
+    '      var name = f.file_name || f.name;',
+    '      return \'<div class="list-group-item d-flex justify-content-between align-items-center">\' +',
+    '        \'<div>\' +',
+    '        \'<span style="margin-right:8px;">📄</span>\' +',
+    '        \'<strong>\' + name + \'</strong>\' +',
+    '        \'<span class="text-muted ml-2 small">\' + date + \'</span>\' +',
+    '        \'</div>\' +',
+    '        \'<a href="\' + (f.file_url || "#") + \'" target="_blank" rel="noopener" \' +',
+    '          \'class="btn btn-sm btn-outline-secondary">Download</a>\' +',
+    '        \'</div>\';',
+    '    }).join("");',
+    '    wrap.innerHTML = \'<div class="list-group">\' + rows + \'</div>\';',
+    '  })',
+    '  .catch(function () {',
+    '    wrap.innerHTML = \'<p class="text-danger mt-3">Could not load documents. Please log in and try again.</p>\';',
+    '  });',
+    '})();',
+    '<\/script>',
+  ].join('\n');
+
+  await upsert('Web Page', 'my-docs', {
+    title: 'My Documents',
+    route: 'my-docs',
+    published: 1,
+    content_type: 'HTML',
+    main_section_html: pageBody,
+    show_sidebar: 1,
+    full_width: 1,
+  });
+
+  console.log('  ✓ Web Page ready: /my-docs');
+}
+
 // ── 0. Cancel blocking Payment Requests ───────────────────────────────────────
 // When a "Requested" Payment Request exists for an invoice, make_payment_request
 // throws a 417 error ("Cannot cancel a submitted Payment Request") and the portal
@@ -844,15 +1012,31 @@ async function main() {
     console.error(`  ✗ Pay button ACH script failed: ${detail}`);
   }
 
+  try {
+    await configureMyLeasePage();
+  } catch (e) {
+    const detail = e.response?.data?.exception || e.message;
+    console.warn('  ⚠  configureMyLeasePage error (non-fatal):', detail);
+  }
+
+  try {
+    await configureMyDocsPage();
+  } catch (e) {
+    const detail = e.response?.data?.exception || e.message;
+    console.warn('  ⚠  configureMyDocsPage error (non-fatal):', detail);
+  }
+
   const webhookBase = (process.env.WEBHOOK_BASE_URL || '').replace(/\/$/, '');
   const achReady = webhookBase && webhookBase !== 'https://your-server.example.com';
 
   console.log('\n✓ Tenant portal setup complete.\n');
   console.log('Next steps:');
   console.log(`  1. Tenants log in at:             ${BASE}/login`);
-  console.log(`  2. Outstanding invoices:          ${BASE}/invoices`);
+  console.log(`  2. Outstanding invoices:          ${BASE}/my-invoices`);
   console.log(`  3. Paid invoices:                 ${BASE}/paid-invoices`);
   console.log(`  4. Maintenance tickets:           ${BASE}/helpdesk`);
+  console.log(`  5. Lease details:                 ${BASE}/my-lease`);
+  console.log(`  6. Lease documents:               ${BASE}/my-docs`);
   if (!achReady) {
     console.log('  5. Set WEBHOOK_BASE_URL to your Railway app URL and re-run to enable ACH');
     console.log('     bank transfer on the portal Pay button.\n');
@@ -862,7 +1046,7 @@ async function main() {
 }
 
 // Export helpers for unit testing
-module.exports = { getDoc, upsert, listDocs, ensurePortalUser, PORTAL_MENU_ITEMS, PAYMENT_REQUEST_CUSTOM_PERMS, SALES_INVOICE_CUSTOM_PERMS, ACH_SCRIPT_MARKER, ALL_INV_MARKER, configureMyInvoicesPage, configurePaidInvoicesPage };
+module.exports = { getDoc, upsert, listDocs, ensurePortalUser, PORTAL_MENU_ITEMS, PAYMENT_REQUEST_CUSTOM_PERMS, SALES_INVOICE_CUSTOM_PERMS, ACH_SCRIPT_MARKER, ALL_INV_MARKER, configureMyInvoicesPage, configurePaidInvoicesPage, configureMyLeasePage, configureMyDocsPage };
 
 // Only run when invoked directly (not when required by tests)
 if (require.main === module) {

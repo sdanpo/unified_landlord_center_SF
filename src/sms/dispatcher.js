@@ -83,6 +83,34 @@ const templates = {
     return `Maintenance complete: "${description}" at ${unit} has been resolved. ` +
            'Please contact us if you have any concerns.';
   },
+
+  /**
+   * Lease renewal notice to tenant approaching end date.
+   * @param {{ tenantName: string, unit: string, endDate: string, daysLeft: number }} p
+   */
+  leaseRenewalNotice({ tenantName, unit, endDate, daysLeft }) {
+    return `Hi ${tenantName}, your lease at ${unit} ends on ${endDate} (${daysLeft} days). ` +
+           'Please contact us to discuss renewal options. Reply STOP to opt out.';
+  },
+
+  /**
+   * Confirmation to tenant once all parties have signed the lease.
+   * @param {{ unit: string, startDate: string }} p
+   */
+  leaseSignedConfirmation({ unit, startDate }) {
+    return `Your lease for ${unit} starting ${startDate} has been fully signed by all parties. ` +
+           'Welcome! Contact us anytime at this number with questions.';
+  },
+
+  /**
+   * Work order notification sent to a vendor/contractor.
+   * @param {{ ticketId: string, subject: string, unitAddress: string, tenantName: string, tenantPhone: string }} p
+   */
+  vendorWorkOrder({ ticketId, subject, unitAddress, tenantName, tenantPhone }) {
+    return `New work order [${ticketId}]: "${subject}" at ${unitAddress}. ` +
+           `Tenant: ${tenantName}${tenantPhone ? ' ' + tenantPhone : ''}. ` +
+           'Please reply to confirm or call the office.';
+  },
 };
 
 module.exports = { send, templates };

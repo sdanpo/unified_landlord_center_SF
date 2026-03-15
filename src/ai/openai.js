@@ -46,6 +46,12 @@ You have real-time access to the property management database and can answer que
 - Lease information (active leases, upcoming expirations, vacant units)
 - Tenant information and contact details
 - Financial summaries and cash flow
+- Lease renewals and expiry pipeline (get_lease_renewals)
+- Vendor/contractor directory (get_vendors)
+- Assigning vendors to work orders (assign_vendor)
+- Sending leases for e-signature via Dropbox Sign (send_lease_for_signature)
+- Sending screening invitations to rental applicants via SmartMove (send_screening_invite)
+- Viewing the rental applicant pipeline (get_applicants)
 
 Always provide concise, actionable answers formatted for a Telegram chat.
 Use plain currency formatting ($1,234.56), clear unit identifiers, and bullet points for lists.
@@ -101,6 +107,96 @@ async function executeTool(toolCall) {
         ...(args.tenantName ? { name: args.tenantName } : {}),
         ...(args.unit ? { unit: args.unit } : {}),
       });
+
+    // ── Hemlane-replacement tool handlers ───────────────────────────────────
+
+    case 'get_lease_renewals':
+      return pmsClient.getExpiringLeases(args.daysAhead || 90);
+
+    case 'get_vendors':
+      return pmsClient.getVendors(args.trade ? { trade: args.trade } : {});
+
+    case 'assign_vendor': {
+      const ticket = await pmsClient.getWorkOrder(args.ticketName);
+      const vendor = await pmsClient.getVendor(args.vendorName);
+      await pmsClient.assignVendor(args.ticketName, args.vendorName);
+
+      // Send SMS to vendor if they have a mobile number
+      if (vendor?.custom_sms_number) {
+        const sms = require('../sms/dispatcher');
+        const msg = sms.templates.vendorWorkOrder({
+          ticketId:    ticket.name,
+          subject:     ticket.subject || '',
+          unitAddress: ticket.custom_unit || ticket.custom_property || '',
+          tenantName:  ticket.customer || '',
+          tenantPhone: '',
+        });
+        await sms.send(vendor.custom_sms_number, msg);
+      }
+
+      return {
+        assigned: true,
+        ticketName: args.ticketName,
+        vendorName: args.vendorName,
+        smsNotified: !!(vendor?.custom_sms_number),
+      };
+    }
+
+    case 'send_lease_for_signature': {
+      const dropboxSign = require('../api/dropboxsign');
+      const tenants = await pmsClient.getTenants({ name: args.tenantName });
+      if (!tenants.length) throw new Error(`No tenant found matching "${args.tenantName}"`);
+      const tenant = tenants[0];
+
+      const leases = await pmsClient.getLeases({ status: 'active' });
+      const lease  = leases.find(l => l.lease_customer === tenant.name);
+      if (!lease) throw new Error(`No active lease found for tenant "${tenant.name}"`);
+
+      const signRequest = await dropboxSign.sendLeaseForSignature({
+        tenantEmail:   tenant.email_id || '',
+        tenantName:    tenant.customer_name || tenant.name,
+        landlordEmail: process.env.LANDLORD_EMAIL || '',
+        landlordName:  process.env.LANDLORD_NAME  || 'Landlord',
+        variables: {
+          tenant_name:      tenant.customer_name || tenant.name,
+          unit_address:     lease.property || '',
+          start_date:       lease.start_date || '',
+          end_date:         lease.end_date   || '',
+          monthly_rent:     lease.lease_item?.[0]?.rate || '',
+          security_deposit: lease.security_deposit || '',
+        },
+      });
+
+      return {
+        sent: true,
+        tenantEmail:       tenant.email_id,
+        signatureRequestId: signRequest.signatureRequestId,
+      };
+    }
+
+    case 'send_screening_invite': {
+      const smartmove = require('../api/smartmove');
+      const lead = await pmsClient.getCRMLead(args.leadName);
+      if (!lead) throw new Error(`No CRM Lead found: "${args.leadName}"`);
+
+      const invitation = await smartmove.sendInvitation({
+        firstName:  lead.first_name || '',
+        lastName:   lead.last_name  || '',
+        email:      lead.email_id   || '',
+        reportType: args.reportType || 'standard',
+      });
+
+      await pmsClient.updateCRMLead(args.leadName, { status: 'Screening Sent' });
+
+      return {
+        sent: true,
+        email:        lead.email_id,
+        invitationId: invitation.invitationId,
+      };
+    }
+
+    case 'get_applicants':
+      return pmsClient.getCRMLeads(args.status ? { status: args.status } : {});
 
     default:
       throw new Error(`Unknown tool: ${name}`);

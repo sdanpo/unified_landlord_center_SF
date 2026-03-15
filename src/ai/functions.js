@@ -146,6 +146,138 @@ const tools = [
       },
     },
   },
+  // ── Hemlane-replacement tools ──────────────────────────────────────────────
+  {
+    type: 'function',
+    function: {
+      name: 'get_lease_renewals',
+      description:
+        'List active leases expiring within the specified number of days.  ' +
+        'Use when the landlord asks which leases are expiring soon, ' +
+        'or wants a renewal pipeline overview.',
+      parameters: {
+        type: 'object',
+        properties: {
+          daysAhead: {
+            type: 'number',
+            description: 'How many days ahead to look.  Defaults to 90.',
+          },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_vendors',
+      description:
+        'List vendors / contractors in the portfolio directory.  ' +
+        'Use when the landlord asks who the plumbers are, wants a vendor list, ' +
+        'or needs to find a contractor for a trade.',
+      parameters: {
+        type: 'object',
+        properties: {
+          trade: {
+            type: 'string',
+            enum: ['Plumbing', 'Electrical', 'HVAC', 'Painting', 'Carpentry', 'Landscaping', 'Pest Control', 'General'],
+            description: 'Optional: filter by vendor trade / specialty.',
+          },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'assign_vendor',
+      description:
+        'Assign a vendor / contractor to an open maintenance work order (HD Ticket) ' +
+        'and send them an SMS notification.  ' +
+        'Use when the landlord says "assign [vendor] to ticket [ID]".',
+      parameters: {
+        type: 'object',
+        properties: {
+          ticketName: {
+            type: 'string',
+            description: 'HD Ticket document name (e.g. "HD-TICKET-0042").',
+          },
+          vendorName: {
+            type: 'string',
+            description: 'ERPNext Supplier name (e.g. "MA Inc.").',
+          },
+        },
+        required: ['ticketName', 'vendorName'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'send_lease_for_signature',
+      description:
+        'Send the lease agreement to a tenant for e-signature via Dropbox Sign.  ' +
+        'Pre-fills the lease PDF template with the tenant\'s current lease data ' +
+        '(unit, dates, rent, deposit) and requests signatures from both the tenant ' +
+        'and the landlord.  Use when the landlord says "send lease to [tenant name]".',
+      parameters: {
+        type: 'object',
+        properties: {
+          tenantName: {
+            type: 'string',
+            description: 'Full or partial ERPNext Customer name of the tenant.',
+          },
+        },
+        required: ['tenantName'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'send_screening_invite',
+      description:
+        'Send a TransUnion SmartMove tenant screening invitation to a rental applicant.  ' +
+        'The applicant pays the screening fee directly; the landlord receives the report.  ' +
+        'Use when the landlord says "screen [applicant]".',
+      parameters: {
+        type: 'object',
+        properties: {
+          leadName: {
+            type: 'string',
+            description: 'ERPNext CRM Lead document name of the applicant.',
+          },
+          reportType: {
+            type: 'string',
+            enum: ['basic', 'standard', 'premium'],
+            description: 'SmartMove report tier.  Defaults to "standard".',
+          },
+        },
+        required: ['leadName'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_applicants',
+      description:
+        'List rental applicants from the application pipeline.  ' +
+        'Use when the landlord asks about pending applications, ' +
+        'who has applied, or the status of screening.',
+      parameters: {
+        type: 'object',
+        properties: {
+          status: {
+            type: 'string',
+            description: 'Optional: filter by CRM Lead status (e.g. "New Application", "Screened", "Approved").',
+          },
+        },
+        required: [],
+      },
+    },
+  },
 ];
 
 module.exports = tools;

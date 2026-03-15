@@ -88,6 +88,100 @@ async function runOverdueRentCheck() {
   }
 }
 
+// ─── Lease Renewal Check ──────────────────────────────────────────────────────
+
+/**
+ * Check for leases expiring within the next 90 days.
+ * Sends SMS reminders to tenants at 90 / 60 / 30 / 14-day milestones and a
+ * Telegram summary to the landlord.  Uses custom_renewal_notice_sent on Lease
+ * to prevent duplicate alerts within the same 30-day window.
+ */
+async function runLeaseRenewalCheck() {
+  const notifyLandlord = getNotifyLandlord();
+  const sms            = getSms();
+
+  let leases;
+  try {
+    leases = await api.getExpiringLeases(90);
+  } catch (err) {
+    logger.error('Lease renewal check: could not fetch leases', { error: err.message });
+    return;
+  }
+
+  if (!leases || leases.length === 0) {
+    logger.info('Lease renewal check: no leases expiring within 90 days');
+    return;
+  }
+
+  const today    = new Date(); today.setHours(0, 0, 0, 0);
+  const THIRTY   = 30 * 86_400_000;
+  const alerts   = [];
+
+  for (const lease of leases) {
+    const end      = new Date(lease.end_date);
+    const daysLeft = Math.ceil((end.getTime() - today.getTime()) / 86_400_000);
+
+    // Only alert at 90, 60, 30, or 14-day milestones
+    const isMilestone = [90, 60, 30, 14].includes(daysLeft);
+    if (!isMilestone) continue;
+
+    // Deduplicate: skip if we already sent a notice within the last 30 days
+    if (lease.custom_renewal_notice_sent) {
+      const lastSent = new Date(lease.custom_renewal_notice_sent);
+      if (today.getTime() - lastSent.getTime() < THIRTY) continue;
+    }
+
+    // Fetch tenant phone number
+    let mobile = '';
+    try {
+      const tenant = await api.getTenant(lease.lease_customer);
+      mobile = tenant?.mobile_no || '';
+    } catch (_) { /* phone optional */ }
+
+    const tenantName = lease.lease_customer || 'Tenant';
+    const unit       = lease.property || '';
+    const endDateStr = end.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+
+    // SMS to tenant
+    if (mobile) {
+      try {
+        const msg = sms.templates.leaseRenewalNotice({ tenantName, unit, endDate: endDateStr, daysLeft });
+        await sms.send(mobile, msg);
+      } catch (err) {
+        logger.error('Failed to send lease renewal SMS', { lease: lease.name, error: err.message });
+      }
+    }
+
+    // Mark notice sent in ERPNext
+    try {
+      await api.updateLease(lease.name, {
+        custom_renewal_notice_sent: today.toISOString().split('T')[0],
+      });
+    } catch (err) {
+      logger.error('Failed to update custom_renewal_notice_sent', { lease: lease.name, error: err.message });
+    }
+
+    alerts.push({ tenantName, unit, endDateStr, daysLeft, lease: lease.name });
+  }
+
+  logger.info('Lease renewal check complete', { expiring: leases.length, alerted: alerts.length });
+
+  if (alerts.length === 0) return;
+
+  // Telegram summary to landlord
+  try {
+    const lines = alerts.map(a =>
+      `  • ${a.tenantName} — ${a.unit}: ${a.daysLeft} days (${a.endDateStr})`
+    ).join('\n');
+    await notifyLandlord(
+      `📋 Lease renewal reminders sent (${alerts.length}):\n${lines}\n\n` +
+      'Reply "renew [lease]", "vacate [lease]", or ask me for details.'
+    );
+  } catch (err) {
+    logger.error('Failed to send Telegram lease renewal summary', { error: err.message });
+  }
+}
+
 // ─── Stale Work Order Check ───────────────────────────────────────────────────
 
 /**
@@ -121,4 +215,4 @@ async function runStaleWorkOrderCheck() {
   }
 }
 
-module.exports = { runOverdueRentCheck, runStaleWorkOrderCheck };
+module.exports = { runOverdueRentCheck, runStaleWorkOrderCheck, runLeaseRenewalCheck };

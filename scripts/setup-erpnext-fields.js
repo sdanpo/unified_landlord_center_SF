@@ -73,8 +73,30 @@ const CUSTOM_FIELDS = [
   },
 
   // ── HD Ticket (Helpdesk module) ────────────────────────────────────────────
-  { dt: 'HD Ticket', fieldname: 'custom_unit',     label: 'Unit',     fieldtype: 'Data', insert_after: 'customer' },
-  { dt: 'HD Ticket', fieldname: 'custom_property', label: 'Property', fieldtype: 'Data', insert_after: 'custom_unit' },
+  { dt: 'HD Ticket', fieldname: 'custom_unit',            label: 'Unit',            fieldtype: 'Data',   insert_after: 'customer' },
+  { dt: 'HD Ticket', fieldname: 'custom_property',        label: 'Property',        fieldtype: 'Data',   insert_after: 'custom_unit' },
+  { dt: 'HD Ticket', fieldname: 'custom_ticket_type',     label: 'Ticket Type',     fieldtype: 'Select', insert_after: 'custom_property',
+    options: 'Maintenance\nLease Renewal\nMove-Out Notice\nOther' },
+  {
+    dt: 'HD Ticket', fieldname: 'custom_assigned_vendor', label: 'Assigned Vendor',
+    fieldtype: 'Link', options: 'Supplier',
+    insert_after: 'custom_ticket_type',
+  },
+  { dt: 'HD Ticket', fieldname: 'custom_vendor_quote',    label: 'Vendor Quote ($)', fieldtype: 'Currency', insert_after: 'custom_assigned_vendor' },
+  { dt: 'HD Ticket', fieldname: 'custom_quote_approved',  label: 'Quote Approved',  fieldtype: 'Check',    insert_after: 'custom_vendor_quote', default: '0' },
+
+  // ── Supplier (vendor directory) ────────────────────────────────────────────
+  { dt: 'Supplier', fieldname: 'custom_trade',          label: 'Trade / Specialty', fieldtype: 'Select', insert_after: 'supplier_type',
+    options: 'Plumbing\nElectrical\nHVAC\nPainting\nCarpentry\nLandscaping\nPest Control\nGeneral' },
+  { dt: 'Supplier', fieldname: 'custom_license_number', label: 'CA License #',      fieldtype: 'Data',   insert_after: 'custom_trade' },
+  { dt: 'Supplier', fieldname: 'custom_rating',         label: 'Rating',            fieldtype: 'Select', insert_after: 'custom_license_number',
+    options: '5 - Excellent\n4 - Good\n3 - Average\n2 - Below Average\n1 - Poor' },
+  { dt: 'Supplier', fieldname: 'custom_sms_number',     label: 'SMS / Mobile #',    fieldtype: 'Data',   insert_after: 'custom_rating' },
+
+  // ── Lease (renewal tracking) ───────────────────────────────────────────────
+  { dt: 'Lease', fieldname: 'custom_renewal_notice_sent', label: 'Renewal Notice Sent', fieldtype: 'Date',   insert_after: 'end_date' },
+  { dt: 'Lease', fieldname: 'custom_renewal_action',      label: 'Renewal Action',      fieldtype: 'Select', insert_after: 'custom_renewal_notice_sent',
+    options: '\nRenew\nVacating\nRent Increase' },
 ];
 
 /** Check whether a DocType exists on the ERPNext instance. */
