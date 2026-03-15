@@ -111,22 +111,21 @@ const PORTAL_MENU_ITEMS = [
     reference_doctype: 'Sales Invoice',
     role: 'Customer',
   },
-  // /payments is not a valid ERPNext portal page — disabled to avoid 404.
-  // Tenants view payment history through the invoice detail page (/invoices/<name>).
+  // Payment Entry portal page — standard ERPNext /payments portal route.
   {
     title: 'Payment History',
-    enabled: 0,
+    enabled: 1,
     route: '/payments',
     reference_doctype: 'Payment Entry',
     role: 'Customer',
   },
-  // Standard ERPNext Issues portal page is /issues (not /helpdesk).
-  // /helpdesk resolves to the Frappe Helpdesk app if installed; /issues always works.
+  // Frappe Helpdesk app is installed on this instance; /helpdesk is the correct route.
+  // /issues remains as fallback for instances without the helpdesk app.
   {
     title: 'Maintenance Tickets',
     enabled: 1,
-    route: '/issues',
-    reference_doctype: 'Issue',
+    route: '/helpdesk',
+    reference_doctype: 'HD Ticket',
     role: 'Customer',
   },
   {
@@ -356,11 +355,13 @@ async function ensurePortalUser(tenant) {
   }
 
   // Link the portal user to the Customer record via portal_users child table
+  let alreadyLinked = false;
   try {
     const current = await getDoc('Customer', tenant.name);
     const existingUsers = (current?.portal_users || []).map(u => u.user);
+    alreadyLinked = existingUsers.includes(email);
 
-    if (!existingUsers.includes(email)) {
+    if (!alreadyLinked) {
       await http.put(`/api/resource/Customer/${encodeURIComponent(tenant.name)}`, {
         portal_users: [...(current?.portal_users || []), { user: email }],
       });
@@ -399,7 +400,7 @@ async function ensurePortalUser(tenant) {
     console.warn(`  ⚠  Could not create User Permission for ${email}: ${detail}`);
   }
 
-  return { skipped: false, linked: true };
+  return { skipped: false, alreadyLinked, linked: true };
 }
 
 async function configureTenantPortalUsers() {
