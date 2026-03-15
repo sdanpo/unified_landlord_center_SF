@@ -353,8 +353,22 @@ async function main() {
           await erpSubmit('Sales Invoice', invName);
           invStatus = 'existed+submitted';
         } catch (err) {
-          invStatus = `ERR submitting: ${err.response?.data?.exception || err.message}`;
-          invName = null; // can't use an unsubmitted invoice
+          const errMsg = err.response?.data?.exception || err.message;
+          // In Frappe v14+, Notification failures fire after the DB commit,
+          // so the invoice may actually be submitted despite the API error.
+          // Re-fetch docstatus before giving up.
+          if (errMsg.includes('Notification')) {
+            const recheck = await erpList('Sales Invoice', [['name', '=', invName]], ['name', 'docstatus']);
+            if (recheck.length > 0 && (recheck[0].docstatus === 1 || recheck[0].docstatus === '1')) {
+              invStatus = 'existed+submitted (notification warning ignored)';
+            } else {
+              invStatus = `ERR submitting: ${errMsg}`;
+              invName = null;
+            }
+          } else {
+            invStatus = `ERR submitting: ${errMsg}`;
+            invName = null;
+          }
         }
       } else {
         invStatus = 'existed';
@@ -378,9 +392,26 @@ async function main() {
           remarks: `Rent – ${p.month}`,
         });
         invName = inv.name;
-        await erpSubmit('Sales Invoice', invName);
-        invStatus = 'created+submitted';
-        erpCreated++;
+        try {
+          await erpSubmit('Sales Invoice', invName);
+          invStatus = 'created+submitted';
+          erpCreated++;
+        } catch (submitErr) {
+          const errMsg = submitErr.response?.data?.exception || submitErr.message;
+          if (errMsg.includes('Notification')) {
+            const recheck = await erpList('Sales Invoice', [['name', '=', invName]], ['name', 'docstatus']);
+            if (recheck.length > 0 && (recheck[0].docstatus === 1 || recheck[0].docstatus === '1')) {
+              invStatus = 'created+submitted (notification warning ignored)';
+              erpCreated++;
+            } else {
+              invStatus = `ERR submitting: ${errMsg}`;
+              invName = null;
+            }
+          } else {
+            invStatus = `ERR submitting: ${errMsg}`;
+            invName = null;
+          }
+        }
       } catch (err) {
         invStatus = `ERR: ${err.response?.data?.exception || err.message}`;
       }
