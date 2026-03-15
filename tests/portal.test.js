@@ -240,10 +240,9 @@ describe('Portal setup script – helper functions', () => {
       expect(item.reference_doctype).toBe('Sales Invoice');
     });
 
-    test('includes payments page', () => {
+    test('does NOT include /payments (no portal page in ERPNext v15 — causes 404)', () => {
       const item = helpers.PORTAL_MENU_ITEMS.find(m => m.route === '/payments');
-      expect(item).toBeDefined();
-      expect(item.enabled).toBe(1);
+      expect(item).toBeUndefined();
     });
 
     test('includes helpdesk page', () => {
@@ -252,10 +251,9 @@ describe('Portal setup script – helper functions', () => {
       expect(item.enabled).toBe(1);
     });
 
-    test('includes profile page', () => {
+    test('does NOT include /me (duplicate of built-in My Account in portal header)', () => {
       const item = helpers.PORTAL_MENU_ITEMS.find(m => m.route === '/me');
-      expect(item).toBeDefined();
-      expect(item.enabled).toBe(1);
+      expect(item).toBeUndefined();
     });
 
     test('all items have required fields (title, route, enabled)', () => {

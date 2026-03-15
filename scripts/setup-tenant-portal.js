@@ -111,16 +111,8 @@ const PORTAL_MENU_ITEMS = [
     reference_doctype: 'Sales Invoice',
     role: 'Customer',
   },
-  // Payment Entry portal page — standard ERPNext /payments portal route.
-  {
-    title: 'Payment History',
-    enabled: 1,
-    route: '/payments',
-    reference_doctype: 'Payment Entry',
-    role: 'Customer',
-  },
-  // Frappe Helpdesk app is installed on this instance; /helpdesk is the correct route.
-  // /issues remains as fallback for instances without the helpdesk app.
+  // /payments does NOT exist as a portal page in ERPNext v15 — omitted to avoid 404.
+  // Frappe Helpdesk app is installed; /helpdesk is the correct route for tickets.
   {
     title: 'Maintenance Tickets',
     enabled: 1,
@@ -135,13 +127,8 @@ const PORTAL_MENU_ITEMS = [
     reference_doctype: 'Address',
     role: 'Customer',
   },
-  {
-    title: 'My Profile',
-    enabled: 1,
-    route: '/me',
-    reference_doctype: '',
-    role: '',
-  },
+  // "My Profile" omitted — Frappe's built-in "My Account" (/me) is already shown
+  // in the standard portal header; a second entry would be a duplicate.
 ];
 
 async function configurePortalSettings() {
@@ -162,11 +149,18 @@ async function configurePortalSettings() {
     hide_standard_pages: 0,
     logout_on_session_expiry: 0,
     menu: mergedMenu,
-    custom_menu: [], // clear any stale custom entries (e.g. /leases, /payments)
+    custom_menu: [], // clear any stale custom entries (e.g. /leases, old /payments)
   });
-  console.log('  ✓ Portal pages configured: invoices (on), issues (on), addresses (on), profile (on)');
-  console.log('  ✓ Payment History disabled (no /payments page in standard ERPNext)');
-  console.log('  ✓ Custom menu cleared (removed /leases and duplicate /payments entries)');
+  console.log('  ✓ Portal pages: invoices, helpdesk, addresses (Payment History + My Profile removed)');
+
+  // Set the Customer role home page so tenants land on /invoices after login,
+  // not on /helpdesk (which the Helpdesk app sets as the Customer role default).
+  try {
+    await http.put('/api/resource/Role/Customer', { home_page: '/invoices' });
+    console.log('  ✓ Customer role home page → /invoices (fixes Helpdesk default landing)');
+  } catch (e) {
+    console.warn('  ⚠  Could not set Customer role home page:', e.response?.data?.exception || e.message);
+  }
 }
 
 // ── 2. Stripe Payment Gateway ─────────────────────────────────────────────────
