@@ -128,7 +128,7 @@ async function executeTool(toolCall) {
           ticketId:    ticket.name,
           subject:     ticket.subject || '',
           unitAddress: ticket.custom_unit || ticket.custom_property || '',
-          tenantName:  ticket.customer || '',
+          tenantName:  ticket.customer_name || ticket.customer || '',
           tenantPhone: '',
         });
         await sms.send(vendor.custom_sms_number, msg);
@@ -147,13 +147,14 @@ async function executeTool(toolCall) {
       const tenants = await pmsClient.getTenants({ name: args.tenantName });
       if (!tenants.length) throw new Error(`No tenant found matching "${args.tenantName}"`);
       const tenant = tenants[0];
+      if (!tenant.email_id) throw new Error(`Tenant "${tenant.customer_name || tenant.name}" has no email address on file — add one in ERPNext before sending for signature`);
 
       const leases = await pmsClient.getLeases({ status: 'active' });
       const lease  = leases.find(l => l.lease_customer === tenant.name);
       if (!lease) throw new Error(`No active lease found for tenant "${tenant.name}"`);
 
       const signRequest = await dropboxSign.sendLeaseForSignature({
-        tenantEmail:   tenant.email_id || '',
+        tenantEmail:   tenant.email_id,
         tenantName:    tenant.customer_name || tenant.name,
         landlordEmail: process.env.LANDLORD_EMAIL || '',
         landlordName:  process.env.LANDLORD_NAME  || 'Landlord',
@@ -162,15 +163,15 @@ async function executeTool(toolCall) {
           unit_address:     lease.property || '',
           start_date:       lease.start_date || '',
           end_date:         lease.end_date   || '',
-          monthly_rent:     lease.lease_item?.[0]?.rate || '',
+          monthly_rent:     lease.monthly_rent || '',
           security_deposit: lease.security_deposit || '',
         },
       });
 
       return {
         sent: true,
-        tenantEmail:       tenant.email_id,
-        signatureRequestId: signRequest.signatureRequestId,
+        tenantEmail: tenant.email_id,
+        documentId:  signRequest.documentId,
       };
     }
 

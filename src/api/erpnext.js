@@ -429,7 +429,7 @@ class ERPNextClient {
 
     return this._list('Sales Invoice', {
       fields: [
-        'name', 'customer', 'customer_name',
+        'name', 'customer', 'customer_name', 'company',
         'grand_total', 'outstanding_amount', 'due_date',
         'custom_unit', 'custom_property', 'custom_lease',
       ],

@@ -92,7 +92,7 @@ async function handleBoldSignCompleted(body) {
         lease = leases.find(l => l.lease_customer === tenantDoc.name);
       }
     } catch (err) {
-      logger.error('Dropbox Sign: could not resolve tenant/lease', { error: err.message });
+      logger.error('BoldSign: could not resolve tenant/lease', { error: err.message });
     }
   }
 
@@ -307,7 +307,7 @@ function makeWebhookRouter() {
         phone:         d.mobile_no   || '',
         monthlyIncome: d.custom_monthly_gross_income || '',
         occupants:     d.custom_number_of_occupants  || '',
-        hasEviction:   d.custom_has_eviction         || 'No',
+        hasEviction:   d.custom_eviction_history      || 'No',
       },
     }).catch(err => logger.error('application.submitted handler error', { error: err.message }));
     res.json({ received: true });
