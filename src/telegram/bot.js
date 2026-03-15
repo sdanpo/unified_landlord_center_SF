@@ -20,7 +20,7 @@ const TelegramBot = require('node-telegram-bot-api');
 const logger = require('../logger');
 const { config } = require('../config');
 const { guard } = require('./security');
-const { handleStart, handleHelp, handleClear, handleMessage } = require('./handlers');
+const { handleStart, handleHelp, handleClear, handleChatId, handleMessage } = require('./handlers');
 
 let bot = null;
 let botInfo = null; // populated by getMe() – used for @mention + reply-to detection
@@ -89,6 +89,10 @@ function _registerHandlers(b) {
 
   b.onText(/^\/clear(@\w+)?$/, guard(async (msg) => {
     await handleClear(b, msg);
+  }));
+
+  b.onText(/^\/chatid(@\w+)?$/, guard(async (msg) => {
+    await handleChatId(b, msg);
   }));
 
   b.on('message', guard(async (msg) => {
