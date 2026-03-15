@@ -111,6 +111,13 @@ const PORTAL_MENU_ITEMS = [
     reference_doctype: 'Sales Invoice',
     role: 'Customer',
   },
+  {
+    title: 'Paid Invoices',
+    enabled: 1,
+    route: '/paid-invoices',
+    reference_doctype: 'Sales Invoice',
+    role: 'Customer',
+  },
   // /payments does NOT exist as a portal page in ERPNext v15 — omitted to avoid 404.
   // Frappe Helpdesk app is installed; /helpdesk is the correct route for tickets.
   {
@@ -151,7 +158,7 @@ async function configurePortalSettings() {
     menu: mergedMenu,
     custom_menu: [], // clear any stale custom entries (e.g. /leases, old /payments)
   });
-  console.log('  ✓ Portal pages: invoices, helpdesk, addresses (Payment History + My Profile removed)');
+  console.log('  ✓ Portal pages: invoices, paid-invoices, helpdesk, addresses');
 
   // Set the Customer role home page so tenants land on /invoices after login,
   // not on /helpdesk (which the Helpdesk app sets as the Customer role default).
@@ -432,6 +439,91 @@ async function configureTenantPortalUsers() {
   );
 }
 
+// ── 6a. Paid Invoices Web Page at /paid-invoices ──────────────────────────────
+// Creates (or updates) a custom ERPNext Web Page that lists only paid invoices
+// (outstanding_amount = 0, docstatus = 1) for the logged-in tenant.
+// The page uses client-side frappe.call so ERPNext's User Permission system
+// automatically scopes results to the authenticated customer — no extra filtering
+// needed on our side.
+//
+// Also cleans up the old head_html patch from the previous implementation that
+// showed all invoices on /invoices (now reverted in favour of separate pages).
+
+const ALL_INV_MARKER = '<!-- PM-ALL-INVOICES -->';
+
+async function configurePaidInvoicesPage() {
+  console.log('\n── 6a. Paid Invoices Web Page (/paid-invoices) ───────────────');
+
+  // ── Remove the old "show-all-invoices" head_html patch if present ──────────
+  const { data: wsData } = await http.get('/api/resource/Website%20Settings/Website%20Settings');
+  const existingHead = wsData.data.head_html || '';
+  const cleanedHead = existingHead
+    .replace(new RegExp(`\\s*${ALL_INV_MARKER}[\\s\\S]*?${ALL_INV_MARKER}`, 'g'), '')
+    .trim();
+  if (cleanedHead !== existingHead) {
+    await http.put('/api/resource/Website%20Settings/Website%20Settings', {
+      head_html: cleanedHead,
+    });
+    console.log('  ↺ Removed old show-all-invoices head_html patch');
+  }
+
+  // ── Create / update the Web Page ──────────────────────────────────────────
+  // The page body: a Bootstrap list rendered by frappe.call on the client side.
+  // ERPNext User Permission (allow Customer = <tenant>) ensures each tenant only
+  // sees their own invoices — no server-side changes required.
+  const pageBody = [
+    '<div id="paid-inv-wrap"><p class="text-muted">Loading paid invoices\u2026</p></div>',
+    '<script>',
+    'frappe.ready(function () {',
+    '  var wrap = document.getElementById("paid-inv-wrap");',
+    '  frappe.call({',
+    '    method: "frappe.client.get_list",',
+    '    args: {',
+    '      doctype: "Sales Invoice",',
+    '      filters: [["docstatus","=",1],["outstanding_amount","=",0]],',
+    '      fields: ["name","posting_date","grand_total"],',
+    '      limit_page_length: 100,',
+    '      order_by: "posting_date desc"',
+    '    },',
+    '    callback: function (r) {',
+    '      if (!r.message || !r.message.length) {',
+    '        wrap.innerHTML = \'<p class="text-muted mt-3">No paid invoices yet.</p>\';',
+    '        return;',
+    '      }',
+    '      var rows = r.message.map(function (inv) {',
+    '        return \'<a href="/invoices/\' + encodeURIComponent(inv.name) + \'" \'',
+    '          + \'class="list-group-item list-group-item-action">\'',
+    '          + \'<div class="row align-items-center">\'',
+    '          + \'<div class="col-sm-4"><strong>\' + inv.name + \'</strong></div>\'',
+    '          + \'<div class="col-sm-2 text-muted">\' + inv.posting_date + \'</div>\'',
+    '          + \'<div class="col-sm-2"><span class="indicator-pill green">Paid</span></div>\'',
+    '          + \'<div class="col-sm-2 text-muted">Monthly Rent</div>\'',
+    '          + \'<div class="col-sm-2 text-right"><strong>$\'',
+    '          + parseFloat(inv.grand_total).toFixed(2) + \'</strong></div>\'',
+    '          + \'</div></a>\';',
+    '      }).join("");',
+    '      wrap.innerHTML = \'<div class="list-group">\' + rows + \'</div>\';',
+    '    },',
+    '    error: function () {',
+    '      wrap.innerHTML = \'<p class="text-danger mt-3">Could not load invoices. Please log in first.</p>\';',
+    '    }',
+    '  });',
+    '});',
+    '<\/script>',
+  ].join('\n');
+
+  await upsert('Web Page', 'paid-invoices', {
+    title: 'Paid Invoices',
+    route: 'paid-invoices',
+    published: 1,
+    content_type: 'HTML',
+    main_section: pageBody,
+    show_sidebar: 1,
+  });
+
+  console.log(`  ✓ Web Page ready: ${BASE}/paid-invoices`);
+}
+
 // ── 6. Portal Pay Button — ACH override via Website Settings.head_html ───────
 // The standard ERPNext portal Pay button calls make_payment_request which
 // redirects to /stripe_checkout — an embedded Stripe card-only form.
@@ -653,6 +745,13 @@ async function main() {
   }
 
   try {
+    await configurePaidInvoicesPage();
+  } catch (e) {
+    const detail = e.response?.data?.exception || e.message;
+    console.error(`  ✗ Paid Invoices page failed: ${detail}`);
+  }
+
+  try {
     await configurePayButtonScript();
   } catch (e) {
     const detail = e.response?.data?.exception || e.message;
@@ -665,18 +764,19 @@ async function main() {
   console.log('\n✓ Tenant portal setup complete.\n');
   console.log('Next steps:');
   console.log(`  1. Tenants log in at:             ${BASE}/login`);
-  console.log(`  2. Rent invoices + payment links: ${BASE}/invoices`);
-  console.log(`  3. Maintenance tickets:           ${BASE}/issues`);
+  console.log(`  2. Outstanding invoices:          ${BASE}/invoices`);
+  console.log(`  3. Paid invoices:                 ${BASE}/paid-invoices`);
+  console.log(`  4. Maintenance tickets:           ${BASE}/helpdesk`);
   if (!achReady) {
-    console.log('  4. Set WEBHOOK_BASE_URL to your Railway app URL and re-run to enable ACH');
+    console.log('  5. Set WEBHOOK_BASE_URL to your Railway app URL and re-run to enable ACH');
     console.log('     bank transfer on the portal Pay button.\n');
   } else {
-    console.log(`  4. ACH bank transfer enabled via ${webhookBase}/checkout\n`);
+    console.log(`  5. ACH bank transfer enabled via ${webhookBase}/checkout\n`);
   }
 }
 
 // Export helpers for unit testing
-module.exports = { getDoc, upsert, listDocs, ensurePortalUser, PORTAL_MENU_ITEMS, PAYMENT_REQUEST_CUSTOM_PERMS, SALES_INVOICE_CUSTOM_PERMS, ACH_SCRIPT_MARKER };
+module.exports = { getDoc, upsert, listDocs, ensurePortalUser, PORTAL_MENU_ITEMS, PAYMENT_REQUEST_CUSTOM_PERMS, SALES_INVOICE_CUSTOM_PERMS, ACH_SCRIPT_MARKER, ALL_INV_MARKER, configurePaidInvoicesPage };
 
 // Only run when invoked directly (not when required by tests)
 if (require.main === module) {
