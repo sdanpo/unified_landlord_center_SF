@@ -257,30 +257,36 @@ async function main() {
   console.log(`  Fiscal years verified : ${yearsNeeded.join(', ')}`);
 
   // ── 5. ERPNext Bank account ──────────────────────────────────────────────────
+  //
+  // Strategy (in order):
+  //   a) STRIPE_BANK_ACCOUNT env var – explicit override by the operator
+  //   b) Account linked to Mode of Payment "Credit Card" for this company –
+  //      guaranteed valid for Payment Entry because ERPNext itself configured it
+  //   c) Cash - <ABBR> – always present and always accepted by Payment Entry
+  //
   let bankAccount = process.env.STRIPE_BANK_ACCOUNT || '';
-  if (!bankAccount) {
-    // Prefer an account explicitly typed "Bank" that isn't a group
-    const bankRows = await erpList('Account', [
-      ['company',      '=', COMPANY],
-      ['account_type', '=', 'Bank'],
-      ['is_group',     '=', 0],
-      ['root_type',    '=', 'Asset'],
-    ], ['name', 'account_type']);
 
-    if (bankRows.length > 0) {
-      bankAccount = bankRows[0].name;
-    } else {
-      // Fall back to any Cash account
-      const cashRows = await erpList('Account', [
-        ['company',      '=', COMPANY],
-        ['account_type', '=', 'Cash'],
-        ['is_group',     '=', 0],
-        ['root_type',    '=', 'Asset'],
-      ], ['name']);
-      bankAccount = cashRows.length > 0 ? cashRows[0].name : `Cash - ${ABBR}`;
-    }
+  if (!bankAccount) {
+    try {
+      const mopRows = await erpList('Mode of Payment Account', [
+        ['parent', 'in', ['Credit Card', 'Stripe', 'Bank Transfer', 'Wire Transfer']],
+        ['company', '=', COMPANY],
+      ], ['default_account', 'parent']);
+      if (mopRows.length > 0 && mopRows[0].default_account) {
+        bankAccount = mopRows[0].default_account;
+        console.log(`\n── 5. ERPNext Bank Account ─ ${bankAccount}  (from Mode of Payment: ${mopRows[0].parent})`);
+      }
+    } catch (_) { /* ignore – fall through */ }
   }
-  console.log(`\n── 5. ERPNext Bank Account ─ ${bankAccount}`);
+
+  if (!bankAccount) {
+    bankAccount = `Cash - ${ABBR}`;
+    console.log(`\n── 5. ERPNext Bank Account ─ ${bankAccount}  (default Cash; set STRIPE_BANK_ACCOUNT env var to override)`);
+  } else if (!process.env.STRIPE_BANK_ACCOUNT && !bankAccount.startsWith('Cash')) {
+    console.log(`\n── 5. ERPNext Bank Account ─ ${bankAccount}`);
+  } else if (process.env.STRIPE_BANK_ACCOUNT) {
+    console.log(`\n── 5. ERPNext Bank Account ─ ${bankAccount}  (from STRIPE_BANK_ACCOUNT)`);
+  }
 
   // ── 6. Create records month by month ────────────────────────────────────────
   console.log('\n── 6. Payment Records ─────────────────────────────────────────');
