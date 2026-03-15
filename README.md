@@ -17,7 +17,7 @@ portal — for approximately **$30–$80/month** in total operating costs.
 | **Lease renewal workflow** | Automated notices at 90/60/30/14 days; send for e-signature from Telegram |
 | **Daily late fee charging** | Configurable grace period + percentage or flat fee; auto-posts to ledger |
 | **Vendor management** | Vendor directory with trade, rating, SMS; assign to work orders from Telegram |
-| **Rental applications** | Public `/apply` form → CRM Lead → Telegram alert → SmartMove screening |
+| **Rental applications** | Public `/apply` form → Lead → Telegram alert → SmartMove screening |
 | **Lease e-signatures** | BoldSign integration; signed PDF auto-attached to Lease record |
 | **Tenant portal** | Self-service invoices, payments (Stripe ACH/card), lease, documents, helpdesk |
 
@@ -185,9 +185,9 @@ In ERPNext → Integrations → Webhooks, create these webhooks with your
 | HD Ticket | `on_update` | `{WEBHOOK_BASE_URL}/webhooks/erpnext/ticket-updated` |
 | Lease | `after_insert` | `{WEBHOOK_BASE_URL}/webhooks/erpnext/contract-submitted` |
 | Lease | `on_update` | `{WEBHOOK_BASE_URL}/webhooks/erpnext/contract-cancelled` |
-| CRM Lead | `after_insert` | `{WEBHOOK_BASE_URL}/webhooks/erpnext/application-submitted` |
+| Lead | `after_insert` | `{WEBHOOK_BASE_URL}/webhooks/erpnext/application-submitted` |
 
-> Set condition on CRM Lead webhook: `doc.lead_source == "Online Application"`
+> Set condition on Lead webhook: `doc.lead_source == "Online Application"`
 
 ### 6. Run
 

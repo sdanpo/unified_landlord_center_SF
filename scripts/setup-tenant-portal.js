@@ -910,8 +910,8 @@ async function configureMyDocsPage() {
 }
 
 // ── 6e. Rental Application Web Form at /apply ─────────────────────────────────
-// Public (no login required) Web Form that creates a CRM Lead on submit.
-// Custom fields on CRM Lead (created by setup-erpnext-fields.js) capture
+// Public (no login required) Web Form that creates a Lead on submit.
+// Custom fields on Lead (created by setup-erpnext-fields.js) capture
 // all application-specific data.
 
 async function configureApplyWebForm() {
@@ -920,7 +920,7 @@ async function configureApplyWebForm() {
   await upsert('Web Form', 'Rental Application', {
     title: 'Rental Application',
     route: 'apply',
-    doc_type: 'CRM Lead',
+    doc_type: 'Lead',
     login_required: 0,
     published: 1,
     allow_multiple: 1,

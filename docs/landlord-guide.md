@@ -239,7 +239,7 @@ full report in your SmartMove dashboard.
 "What's the status of David Chen's application?"
 ```
 
-Returns the CRM Lead pipeline showing where each applicant is:
+Returns the Lead pipeline showing where each applicant is:
 `New Application → Screening Sent → Screened → Approved → Lease Sent → Tenant`
 
 ---

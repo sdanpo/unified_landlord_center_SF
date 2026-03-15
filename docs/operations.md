@@ -111,7 +111,7 @@ npm run setup:erpnext
 ```
 
 This creates all custom fields on Sales Invoice, Payment Entry, HD Ticket,
-Supplier, Lease, and CRM Lead. The script is idempotent — safe to run
+Supplier, Lease, and Lead. The script is idempotent — safe to run
 multiple times.
 
 > **Requires PropMS to be installed first.** The `custom_lease` Link fields
@@ -126,7 +126,7 @@ Custom fields created:
 | HD Ticket | `custom_unit`, `custom_property`, `custom_ticket_type`, `custom_assigned_vendor`, `custom_vendor_quote`, `custom_quote_approved` |
 | Supplier | `custom_trade`, `custom_license_number`, `custom_rating`, `custom_sms_number` |
 | Lease | `custom_renewal_notice_sent`, `custom_renewal_action`, `custom_late_fee_grace_days`, `custom_late_fee_type`, `custom_late_fee_flat_amount` |
-| CRM Lead | `custom_date_of_birth`, `custom_current_address`, `custom_monthly_rent_paid`, `custom_current_landlord_name`, `custom_current_landlord_phone`, `custom_monthly_gross_income`, `custom_employment_start_date`, `custom_eviction_history`, `custom_broken_lease_history`, `custom_number_of_occupants`, `custom_has_pets`, `custom_pet_description`, `custom_consent_background_check`, `custom_consent_accuracy` |
+| Lead | `custom_date_of_birth`, `custom_current_address`, `custom_monthly_rent_paid`, `custom_current_landlord_name`, `custom_current_landlord_phone`, `custom_monthly_gross_income`, `custom_employment_start_date`, `custom_eviction_history`, `custom_broken_lease_history`, `custom_number_of_occupants`, `custom_has_pets`, `custom_pet_description`, `custom_consent_background_check`, `custom_consent_accuracy` |
 
 ### Step 2 — Run ERPNext setup scripts
 
@@ -149,7 +149,7 @@ This creates/updates:
 - Portal menu items (My Invoices, Paid Invoices, My Lease, My Documents,
   Maintenance Tickets)
 - Custom Web Pages at `/my-invoices`, `/paid-invoices`, `/my-lease`, `/my-docs`
-- Public Web Form at `/apply` (creates CRM Lead on submit)
+- Public Web Form at `/apply` (creates Lead on submit)
 - Stripe payment gateway settings (if Stripe keys are set)
 - ACH/card pay button override script in ERPNext Website Settings
 - Website User accounts for all existing tenants (Customer group = "Tenant")
@@ -172,11 +172,11 @@ Conditions to set:
 - **invoice-overdue:** `(doc.outstanding_amount or 0) > 0 and doc.due_date < frappe.utils.today()`
 - **contract-cancelled:** `doc.lease_status in ("Closed", "Not Materialized", "Vacating")`
 
-Also configure ERPNext to call the application webhook when a CRM Lead is
+Also configure ERPNext to call the application webhook when a Lead is
 created via the Web Form:
 | DocType | Trigger | URL |
 |---|---|---|
-| CRM Lead | `after_insert` | `{WEBHOOK_BASE_URL}/webhooks/erpnext/application-submitted` |
+| Lead | `after_insert` | `{WEBHOOK_BASE_URL}/webhooks/erpnext/application-submitted` |
 Condition: `doc.lead_source == "Online Application"`
 
 ### Step 5 — Configure BoldSign webhooks
@@ -325,7 +325,7 @@ The Express server listens on `WEBHOOK_PORT` (default 3000).
 | `POST /webhooks/erpnext/ticket-updated` | HD Ticket on_update | Telegram to landlord |
 | `POST /webhooks/erpnext/contract-submitted` | Lease after_insert | Telegram to landlord |
 | `POST /webhooks/erpnext/contract-cancelled` | Lease on_update (closed/vacating) | Telegram to landlord |
-| `POST /webhooks/erpnext/application-submitted` | CRM Lead after_insert (Online Application) | Telegram to landlord with applicant details |
+| `POST /webhooks/erpnext/application-submitted` | Lead after_insert (Online Application) | Telegram to landlord with applicant details |
 
 ### BoldSign webhook (HMAC via `X-BoldSign-Signature`)
 
@@ -339,7 +339,7 @@ Signature format: `t=<timestamp>, s0=<hex>` — signed payload is `timestamp.raw
 
 | Route | Event | Action |
 |---|---|---|
-| `POST /webhooks/smartmove/completed` | Screening complete | Update CRM Lead status → Telegram to landlord with screening summary |
+| `POST /webhooks/smartmove/completed` | Screening complete | Update Lead status → Telegram to landlord with screening summary |
 
 ### Stripe webhooks
 
@@ -364,7 +364,7 @@ The OpenAI agentic loop has 12 tools available to the Telegram bot:
 | `assign_vendor` | Assign a Supplier to an HD Ticket + SMS the vendor |
 | `send_lease_for_signature` | Send BoldSign signing request to tenant and landlord |
 | `send_screening_invite` | Send TransUnion SmartMove invitation to applicant |
-| `get_applicants` | List CRM Leads (rental applicants) with status |
+| `get_applicants` | List Leads (rental applicants) with status |
 | `get_payments` | Query recent Payment Entries |
 | `get_vacant_units` | List vacant Property Units |
 

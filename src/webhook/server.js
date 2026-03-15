@@ -176,7 +176,7 @@ async function handleSmartMoveCompleted(body) {
   const result         = body?.result          || {};  // credit / criminal / eviction
   const invitationId   = body?.invitation_id   || '';
 
-  // Update CRM Lead status to "Screened"
+  // Update Lead status to "Screened"
   if (applicantEmail) {
     try {
       const leads = await api.getCRMLeads({});
@@ -185,7 +185,7 @@ async function handleSmartMoveCompleted(body) {
         await api.updateCRMLead(lead.name, { status: 'Screened' });
       }
     } catch (err) {
-      logger.error('SmartMove: could not update CRM Lead status', { error: err.message });
+      logger.error('SmartMove: could not update Lead status', { error: err.message });
     }
   }
 

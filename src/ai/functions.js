@@ -246,7 +246,7 @@ const tools = [
         properties: {
           leadName: {
             type: 'string',
-            description: 'ERPNext CRM Lead document name of the applicant.',
+            description: 'ERPNext Lead document name of the applicant.',
           },
           reportType: {
             type: 'string',
@@ -271,7 +271,7 @@ const tools = [
         properties: {
           status: {
             type: 'string',
-            description: 'Optional: filter by CRM Lead status (e.g. "New Application", "Screened", "Approved").',
+            description: 'Optional: filter by Lead status (e.g. "New Application", "Screened", "Approved").',
           },
         },
         required: [],

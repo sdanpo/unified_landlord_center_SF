@@ -263,36 +263,36 @@ class ERPNextClient {
     return this._put('HD Ticket', ticketName, { custom_assigned_vendor: vendorName });
   }
 
-  // ─── CRM Leads (rental applicants) ────────────────────────────────────────
+  // ─── Leads (rental applicants) ────────────────────────────────────────────
 
   /**
-   * List CRM Leads that came from the rental application form.
+   * List Leads that came from the rental application form.
    * @param {Object} [params]
-   * @param {string} [params.status]  – CRM Lead status (e.g. "New Application")
+   * @param {string} [params.status]  – Lead status (e.g. "New Application")
    */
   async getCRMLeads({ status } = {}) {
     const filters = [['lead_source', '=', 'Online Application']];
     if (status) filters.push(['status', '=', status]);
 
-    return this._list('CRM Lead', {
+    return this._list('Lead', {
       fields: ['name', 'first_name', 'last_name', 'email_id', 'mobile_no', 'status', 'creation'],
       filters,
       orderBy: 'creation desc',
     });
   }
 
-  /** Get a single CRM Lead by name. */
+  /** Get a single Lead by name. */
   async getCRMLead(name) {
-    return this._get('CRM Lead', name);
+    return this._get('Lead', name);
   }
 
   /**
-   * Update a CRM Lead (e.g. change status after screening).
+   * Update a Lead (e.g. change status after screening).
    * @param {string} name
    * @param {Object} payload
    */
   async updateCRMLead(name, payload) {
-    return this._put('CRM Lead', name, payload);
+    return this._put('Lead', name, payload);
   }
 
   // ─── Late Fee Invoices ─────────────────────────────────────────────────────

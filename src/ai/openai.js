@@ -178,7 +178,7 @@ async function executeTool(toolCall) {
     case 'send_screening_invite': {
       const smartmove = require('../api/smartmove');
       const lead = await pmsClient.getCRMLead(args.leadName);
-      if (!lead) throw new Error(`No CRM Lead found: "${args.leadName}"`);
+      if (!lead) throw new Error(`No Lead found: "${args.leadName}"`);
 
       const invitation = await smartmove.sendInvitation({
         firstName:  lead.first_name || '',
