@@ -107,7 +107,7 @@ const PORTAL_MENU_ITEMS = [
   {
     title: 'My Invoices',
     enabled: 1,
-    route: '/invoices',
+    route: '/my-invoices',
     reference_doctype: 'Sales Invoice',
     role: 'Customer',
   },
@@ -439,7 +439,75 @@ async function configureTenantPortalUsers() {
   );
 }
 
-// ── 6a. Paid Invoices Web Page at /paid-invoices ──────────────────────────────
+// ── 6a. My Invoices Web Page at /my-invoices ──────────────────────────────────
+// Shows only unpaid (outstanding_amount > 0) invoices for the logged-in tenant.
+// Uses fetch() directly to /api/resource/Sales Invoice — no frappe.call dependency.
+
+async function configureMyInvoicesPage() {
+  console.log('\n── 6a. My Invoices Web Page (/my-invoices) ───────────────────');
+
+  const pageBody = [
+    '<div id="inv-due-wrap"><p class="text-muted">Loading invoices&hellip;</p></div>',
+    '<script>',
+    '(function () {',
+    '  var wrap = document.getElementById("inv-due-wrap");',
+    '  var params = new URLSearchParams({',
+    '    filters: JSON.stringify([["docstatus","=",1],["outstanding_amount",">",0]]),',
+    '    fields:  JSON.stringify(["name","posting_date","grand_total","due_date","outstanding_amount"]),',
+    '    limit_page_length: "100",',
+    '    order_by: "due_date asc"',
+    '  });',
+    '  fetch("/api/resource/Sales%20Invoice?" + params.toString(), {',
+    '    credentials: "include",',
+    '    headers: { "Accept": "application/json" }',
+    '  })',
+    '  .then(function (res) { return res.json(); })',
+    '  .then(function (data) {',
+    '    var invoices = data.data || [];',
+    '    if (!invoices.length) {',
+    '      wrap.innerHTML = \'<p class="text-muted mt-3">No outstanding invoices \u2014 you\\\'re all caught up!</p>\';',
+    '      return;',
+    '    }',
+    '    var today = new Date(); today.setHours(0,0,0,0);',
+    '    var rows = invoices.map(function (inv) {',
+    '      var due = new Date(inv.due_date);',
+    '      var overdue = due < today;',
+    '      var dueLabel = due.toLocaleDateString("en-US", { year:"numeric", month:"short", day:"numeric" });',
+    '      var statusHtml = overdue',
+    '        ? \'<span class="indicator-pill red">Overdue</span>\'',
+    '        : \'<span class="indicator-pill orange">Due \' + dueLabel + \'</span>\';',
+    '      return \'<div class="list-group-item">\'',
+    '        + \'<div class="row align-items-center">\'',
+    '        + \'<div class="col-sm-3"><a href="/invoices/\' + encodeURIComponent(inv.name) + \'">\' + inv.name + \'</a></div>\'',
+    '        + \'<div class="col-sm-2 text-muted">\' + dueLabel + \'</div>\'',
+    '        + \'<div class="col-sm-2">\' + statusHtml + \'</div>\'',
+    '        + \'<div class="col-sm-2 text-muted">Monthly Rent</div>\'',
+    '        + \'<div class="col-sm-3 text-right"><strong>$\' + parseFloat(inv.outstanding_amount).toFixed(2) + \'</strong></div>\'',
+    '        + \'</div></div>\';',
+    '    }).join("");',
+    '    wrap.innerHTML = \'<div class="list-group">\' + rows + \'</div>\';',
+    '  })',
+    '  .catch(function () {',
+    '    wrap.innerHTML = \'<p class="text-danger mt-3">Could not load invoices. Please log in and try again.</p>\';',
+    '  });',
+    '})();',
+    '<\/script>',
+  ].join('\n');
+
+  await upsert('Web Page', 'invoices-due', {
+    title: 'Invoices Due',
+    route: 'my-invoices',
+    published: 1,
+    content_type: 'HTML',
+    main_section_html: pageBody,
+    show_sidebar: 1,
+    full_width: 1,
+  });
+
+  console.log(`  ✓ Web Page ready: /my-invoices`);
+}
+
+// ── 6b. Paid Invoices Web Page at /paid-invoices ──────────────────────────────
 // Creates (or updates) a custom ERPNext Web Page that lists only paid invoices
 // (outstanding_amount = 0, docstatus = 1) for the logged-in tenant.
 // The page uses client-side frappe.call so ERPNext's User Permission system
@@ -756,6 +824,13 @@ async function main() {
   }
 
   try {
+    await configureMyInvoicesPage();
+  } catch (e) {
+    const detail = e.response?.data?.exception || e.message;
+    console.warn('  ⚠  configureMyInvoicesPage error (non-fatal):', detail);
+  }
+
+  try {
     await configurePaidInvoicesPage();
   } catch (e) {
     const detail = e.response?.data?.exception || e.message;
@@ -787,7 +862,7 @@ async function main() {
 }
 
 // Export helpers for unit testing
-module.exports = { getDoc, upsert, listDocs, ensurePortalUser, PORTAL_MENU_ITEMS, PAYMENT_REQUEST_CUSTOM_PERMS, SALES_INVOICE_CUSTOM_PERMS, ACH_SCRIPT_MARKER, ALL_INV_MARKER, configurePaidInvoicesPage };
+module.exports = { getDoc, upsert, listDocs, ensurePortalUser, PORTAL_MENU_ITEMS, PAYMENT_REQUEST_CUSTOM_PERMS, SALES_INVOICE_CUSTOM_PERMS, ACH_SCRIPT_MARKER, ALL_INV_MARKER, configureMyInvoicesPage, configurePaidInvoicesPage };
 
 // Only run when invoked directly (not when required by tests)
 if (require.main === module) {
