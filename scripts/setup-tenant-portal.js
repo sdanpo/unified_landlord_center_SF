@@ -592,7 +592,7 @@ async function configurePaidInvoicesPage() {
     route: 'paid-invoices',
     published: 1,
     content_type: 'HTML',
-    main_section: pageBody,
+    main_section_html: pageBody,
     show_sidebar: 1,
   });
 
