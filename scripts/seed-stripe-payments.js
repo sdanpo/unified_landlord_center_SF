@@ -345,10 +345,20 @@ async function main() {
       ['customer',      '=', erpCustomerId],
       ['posting_date',  '=', p.posting_date],
       ['docstatus',     'in', [0, 1]],
-    ]);
+    ], ['name', 'docstatus']);
     if (existingInv.length > 0) {
-      invName   = existingInv[0].name;
-      invStatus = 'existed';
+      invName = existingInv[0].name;
+      if (existingInv[0].docstatus === 0 || existingInv[0].docstatus === '0') {
+        try {
+          await erpSubmit('Sales Invoice', invName);
+          invStatus = 'existed+submitted';
+        } catch (err) {
+          invStatus = `ERR submitting: ${err.response?.data?.exception || err.message}`;
+          invName = null; // can't use an unsubmitted invoice
+        }
+      } else {
+        invStatus = 'existed';
+      }
     } else {
       try {
         const inv = await erpCreate('Sales Invoice', {
