@@ -442,9 +442,22 @@ async function main() {
         ['party',        '=', erpCustomerId],
         ['posting_date', '=', p.payment_date],
         ['paid_amount',  '=', MONTHLY_RENT],
-      ]);
+      ], ['name', 'docstatus']);
       if (existingPE.length > 0) {
-        peStatus = `existed (${existingPE[0].name})`;
+        const peName = existingPE[0].name;
+        const peDraft = existingPE[0].docstatus === 0 || existingPE[0].docstatus === '0';
+        if (peDraft) {
+          // Draft PE left behind by a previously failed submit — patch cost_center and submit now.
+          try {
+            await erpHttp.put(`/api/resource/Payment%20Entry/${enc(peName)}`, { cost_center: costCenter });
+            await erpSubmit('Payment Entry', peName);
+            peStatus = `existed+submitted (${peName})`;
+          } catch (err) {
+            peStatus = `ERR submitting draft ${peName}: ${err.response?.data?.exception || err.message}`;
+          }
+        } else {
+          peStatus = `existed (${peName})`;
+        }
       } else {
         try {
           const brand = p.pm.includes('mastercard') ? 'Mastercard' : 'Visa';
