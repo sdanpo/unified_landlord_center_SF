@@ -83,6 +83,16 @@ async function handleClear(bot, msg) {
   await bot.sendMessage(msg.chat.id, '🗑️ Conversation history cleared. Starting fresh!');
 }
 
+// ─── /chatid ─────────────────────────────────────────────────────────────────
+
+async function handleChatId(bot, msg) {
+  await bot.sendMessage(
+    msg.chat.id,
+    `Chat ID: \`${msg.chat.id}\`\nType: ${msg.chat.type}\nTitle: ${msg.chat.title || '(private)'}`,
+    { parse_mode: 'Markdown' }
+  );
+}
+
 // ─── Free-form NLP message ────────────────────────────────────────────────────
 
 async function handleMessage(bot, msg) {
@@ -109,4 +119,4 @@ async function handleMessage(bot, msg) {
   }
 }
 
-module.exports = { handleStart, handleHelp, handleClear, handleMessage };
+module.exports = { handleStart, handleHelp, handleClear, handleChatId, handleMessage };
