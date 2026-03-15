@@ -476,30 +476,59 @@ async function configurePayButtonScript() {
   const scriptBlock = `
 ${ACH_SCRIPT_MARKER}
 <script>
-/* Intercept the portal Pay button → Stripe Checkout with card + ACH */
+/* Replace the portal Pay button with two options: ACH (free) and Card (+3%) */
 (function () {
+  var BASE = '${webhookBase}';
+  var SURCHARGE_PCT = parseInt('${process.env.CARD_SURCHARGE_PCT || '3'}', 10);
+
   function init() {
     var path = window.location.pathname;
     var match = path.match(/\\/invoices\\/(ACC-SINV-[\\w-]+)/);
     if (!match) return;
     var inv = match[1];
-    var url = '${webhookBase}/checkout?invoice_name=' + encodeURIComponent(inv);
+
     function patch() {
+      var targets = [];
       document.querySelectorAll('a').forEach(function (a) {
-        if (a.href && a.href.indexOf('make_payment_request') !== -1) {
-          a.href = url;
-          a.onclick = function (e) { e.preventDefault(); location.href = url; };
-        }
+        if (a.href && a.href.indexOf('make_payment_request') !== -1) targets.push(a);
       });
       document.querySelectorAll('[onclick*="make_payment_request"]').forEach(function (el) {
-        el.removeAttribute('onclick');
-        el.onclick = function (e) { e.preventDefault(); location.href = url; };
+        targets.push(el);
+      });
+
+      targets.forEach(function (el) {
+        if (el.dataset.pmReplaced) return;
+        el.dataset.pmReplaced = '1';
+
+        var achUrl  = BASE + '/checkout?invoice_name=' + encodeURIComponent(inv) + '&method=ach';
+        var cardUrl = BASE + '/checkout?invoice_name=' + encodeURIComponent(inv) + '&method=card';
+
+        var wrap = document.createElement('span');
+        wrap.style.cssText = 'display:inline-flex;gap:8px;';
+
+        var btnAch = document.createElement('a');
+        btnAch.href = achUrl;
+        btnAch.className = el.className || 'btn btn-primary btn-sm';
+        btnAch.style.cssText = 'white-space:nowrap;';
+        btnAch.textContent = 'Pay by Bank (ACH)';
+
+        var btnCard = document.createElement('a');
+        btnCard.href = cardUrl;
+        btnCard.className = (el.className || 'btn btn-default btn-sm').replace('btn-primary','btn-default');
+        btnCard.style.cssText = 'white-space:nowrap;';
+        btnCard.textContent = 'Pay by Card (+' + SURCHARGE_PCT + '%)';
+
+        wrap.appendChild(btnAch);
+        wrap.appendChild(btnCard);
+        el.replaceWith(wrap);
       });
     }
+
     patch();
     setTimeout(patch, 500);
     setTimeout(patch, 1500);
   }
+
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();
 })();

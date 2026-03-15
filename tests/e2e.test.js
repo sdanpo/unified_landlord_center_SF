@@ -445,6 +445,92 @@ describe('Webhook Server', () => {
   });
 });
 
+// ─── 6b. Checkout endpoint — surcharge + method routing ──────────────────────
+
+describe('Checkout endpoint – surcharge & method routing', () => {
+  let app;
+
+  // Capture the URLSearchParams body passed to Stripe so we can assert on it
+  let lastStripeBody = '';
+
+  beforeAll(() => {
+    jest.mock('axios', () => {
+      const mockAxios = jest.fn();
+      mockAxios.create = jest.fn(() => {
+        const inst = {
+          get:  jest.fn((path) => {
+            if (path.includes('Sales%20Invoice'))
+              return Promise.resolve({ data: { data: {
+                docstatus: 1, outstanding_amount: 1000,
+                customer: 'Rotem Porat', customer_name: 'Rotem Porat',
+              }}});
+            if (path.includes('Customer'))
+              return Promise.resolve({ data: { data: { email_id: 'rotem@test.com' } } });
+            return Promise.reject(new Error('unexpected GET ' + path));
+          }),
+          post: jest.fn((_path, body) => {
+            lastStripeBody = body || '';
+            return Promise.resolve({ data: { url: 'https://checkout.stripe.com/pay/cs_test', id: 'cs_test' } });
+          }),
+        };
+        return inst;
+      });
+      return mockAxios;
+    });
+
+    process.env.STRIPE_SECRET_KEY  = 'sk_test_fake';
+    process.env.ERPNEXT_BASE_URL   = 'https://erpnext.test.local';
+    process.env.ERPNEXT_API_KEY    = 'key';
+    process.env.ERPNEXT_API_SECRET = 'secret';
+    process.env.CARD_SURCHARGE_PCT = '3';
+
+    const { createWebhookApp } = require('../src/webhook/server');
+    app = createWebhookApp();
+  });
+
+  afterAll(() => {
+    jest.unmock('axios');
+    jest.resetModules();
+  });
+
+  test('GET /checkout missing invoice_name → 400', async () => {
+    const res = await request(app).get('/checkout');
+    expect(res.status).toBe(400);
+  });
+
+  test('GET /checkout invalid method → 400', async () => {
+    const res = await request(app).get('/checkout?invoice_name=ACC-SINV-2026-00001&method=crypto');
+    expect(res.status).toBe(400);
+  });
+
+  test('GET /checkout method=ach → us_bank_account, original amount (100000 cents)', async () => {
+    lastStripeBody = '';
+    const res = await request(app).get('/checkout?invoice_name=ACC-SINV-2026-00001&method=ach');
+    expect(res.status).toBe(302);
+    // URL-encoded: payment_method_types[]=us_bank_account
+    expect(lastStripeBody).toContain('us_bank_account');
+    // URL-encoded: line_items[0][price_data][unit_amount]=100000
+    expect(lastStripeBody).toContain('%5Bunit_amount%5D=100000');
+    expect(lastStripeBody).not.toContain('payment_method_types%5B%5D=card');
+  });
+
+  test('GET /checkout method=card → card only, amount +3% (103000 cents)', async () => {
+    lastStripeBody = '';
+    const res = await request(app).get('/checkout?invoice_name=ACC-SINV-2026-00001&method=card');
+    expect(res.status).toBe(302);
+    expect(lastStripeBody).toContain('payment_method_types%5B%5D=card');
+    expect(lastStripeBody).not.toContain('us_bank_account');
+    // $1000 * 1.03 * 100 = 103000 cents
+    expect(lastStripeBody).toContain('%5Bunit_amount%5D=103000');
+  });
+
+  test('GET /checkout no method → defaults to ach (302 redirect)', async () => {
+    const res = await request(app).get('/checkout?invoice_name=ACC-SINV-2026-00001');
+    expect(res.status).toBe(302);
+    expect(lastStripeBody).toContain('us_bank_account');
+  });
+});
+
 // ─── 6b. Stripe Webhook ───────────────────────────────────────────────────────
 
 describe('Stripe Webhook', () => {

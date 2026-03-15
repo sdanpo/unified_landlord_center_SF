@@ -142,12 +142,21 @@ function makeCheckoutRouter() {
   const router = express.Router();
 
   /**
-   * GET /checkout?invoice_name=ACC-SINV-2026-00009
-   * Creates a Stripe-hosted Checkout Session (card + ACH) and redirects.
+   * GET /checkout?invoice_name=ACC-SINV-2026-00009[&method=ach|card]
+   *
+   * method=ach  (default) → us_bank_account only, original amount
+   * method=card           → card only, amount + CARD_SURCHARGE_PCT (default 3%)
+   *
+   * Creates a Stripe-hosted Checkout Session and redirects the tenant.
    */
   router.get('/checkout', async (req, res) => {
     const invoiceName = (req.query.invoice_name || '').trim();
     if (!invoiceName) return res.status(400).send('invoice_name is required');
+
+    const method = (req.query.method || 'ach').toLowerCase();
+    if (method !== 'ach' && method !== 'card') {
+      return res.status(400).send('method must be "ach" or "card"');
+    }
 
     const stripeSecretKey = config.stripe?.secretKey || process.env.STRIPE_SECRET_KEY;
     const erpnextBase     = (process.env.ERPNEXT_BASE_URL || '').replace(/\/$/, '');
@@ -188,6 +197,14 @@ function makeCheckoutRouter() {
       );
       const customerEmail = custData.data.email_id || '';
 
+      // Apply credit-card surcharge when method=card
+      const CARD_SURCHARGE_PCT = parseFloat(process.env.CARD_SURCHARGE_PCT || '3') / 100;
+      const baseAmount  = inv.outstanding_amount;
+      const isCard      = method === 'card';
+      const finalAmount = isCard
+        ? Math.round(baseAmount * (1 + CARD_SURCHARGE_PCT) * 100) // cents, rounded
+        : Math.round(baseAmount * 100);
+
       const stripeHttp = axios.create({
         baseURL: 'https://api.stripe.com',
         auth: { username: stripeSecretKey, password: '' },
@@ -195,20 +212,30 @@ function makeCheckoutRouter() {
         ...(httpsAgent ? { httpsAgent, proxy: false } : {}),
       });
 
+      const surchargeLabel = isCard
+        ? ` (includes ${Math.round(CARD_SURCHARGE_PCT * 100)}% card processing fee)`
+        : '';
+
       const params = new URLSearchParams({
         mode: 'payment',
         'line_items[0][price_data][currency]': 'usd',
-        'line_items[0][price_data][product_data][name]': `Rent – ${invoiceName}`,
-        'line_items[0][price_data][unit_amount]': String(Math.round(inv.outstanding_amount * 100)),
+        'line_items[0][price_data][product_data][name]': `Rent – ${invoiceName}${surchargeLabel}`,
+        'line_items[0][price_data][unit_amount]': String(finalAmount),
         'line_items[0][quantity]': '1',
         'success_url': `${erpnextBase}/invoices?payment=success`,
         'cancel_url':  `${erpnextBase}/invoices`,
         'metadata[invoice]': invoiceName,
         'metadata[tenant]':  inv.customer_name || '',
-        'payment_method_options[us_bank_account][financial_connections][permissions][]': 'payment_method',
+        'metadata[method]':  method,
       });
-      params.append('payment_method_types[]', 'card');
-      params.append('payment_method_types[]', 'us_bank_account');
+
+      if (isCard) {
+        params.append('payment_method_types[]', 'card');
+      } else {
+        params.append('payment_method_types[]', 'us_bank_account');
+        params.set('payment_method_options[us_bank_account][financial_connections][permissions][]', 'payment_method');
+      }
+
       if (customerEmail) params.set('customer_email', customerEmail);
 
       const { data: session } = await stripeHttp.post(
