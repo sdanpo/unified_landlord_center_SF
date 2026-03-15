@@ -11,6 +11,10 @@
  *   POST /webhooks/erpnext/ticket-created          – ERPNext webhook → workorder.created
  *   POST /webhooks/erpnext/contract-submitted      – ERPNext webhook → lease.created
  *   POST /webhooks/erpnext/contract-cancelled      – ERPNext webhook → lease.expired
+ *   POST /webhooks/erpnext/application-submitted   – ERPNext Web Form submit → application.submitted
+ *   POST /webhooks/dropbox-sign/completed          – (removed — replaced by BoldSign)
+ *   POST /webhooks/boldsign/completed              – BoldSign "all signed" event → lease.signed
+ *   POST /webhooks/smartmove/completed             – SmartMove screening done → notify landlord
  */
 
 const express = require('express');
@@ -41,6 +45,163 @@ function validateSignature(req, res, next) {
 // Middleware to capture raw request body for signature validation
 function captureRawBody(req, _res, buf) {
   req.rawBody = buf.toString();
+}
+
+// ── BoldSign completion handler ────────────────────────────────────────────────
+//
+// Called after all parties have signed.  Downloads the PDF, attaches it to the
+// Lease record in ERPNext, marks signed_agreement_received = 1, then fires
+// a Telegram alert and SMS to the tenant.
+//
+// BoldSign webhook payload shape (eventType === "Completed"):
+//   {
+//     eventType: "Completed",
+//     data: {
+//       documentId: "...",
+//       signerDetails: [
+//         { signerRole: "Tenant",   signerEmail: "...", signerName: "..." },
+//         { signerRole: "Landlord", signerEmail: "...", signerName: "..." }
+//       ]
+//     }
+//   }
+
+async function handleBoldSignCompleted(body) {
+  const { handle } = require('./handlers');
+  const boldSign = require('../api/boldsign');
+  const api      = require('../api/index');
+
+  const documentId = body?.data?.documentId;
+  if (!documentId) return;
+
+  // Extract tenant email from signerDetails
+  const signerDetails   = body?.data?.signerDetails || [];
+  const tenantSignerObj = signerDetails.find(s =>
+    (s.signerRole || '').toLowerCase() === 'tenant'
+  );
+  const tenantEmail = tenantSignerObj?.signerEmail || '';
+
+  let lease      = null;
+  let tenantDoc  = null;
+
+  if (tenantEmail) {
+    try {
+      const allTenants = await api.getTenants({});
+      tenantDoc = allTenants.find(t => (t.email_id || '').toLowerCase() === tenantEmail.toLowerCase());
+      if (tenantDoc) {
+        const leases = await api.getLeases({ status: 'active' });
+        lease = leases.find(l => l.lease_customer === tenantDoc.name);
+      }
+    } catch (err) {
+      logger.error('Dropbox Sign: could not resolve tenant/lease', { error: err.message });
+    }
+  }
+
+  // Download signed PDF
+  let pdfBuffer;
+  try {
+    pdfBuffer = await boldSign.downloadSignedDocument(documentId);
+  } catch (err) {
+    logger.error('BoldSign: PDF download failed', { documentId, error: err.message });
+    pdfBuffer = null;
+  }
+
+  // Attach PDF to the Lease record and mark signed
+  if (lease && pdfBuffer && pdfBuffer.length > 0) {
+    const erpnextBase = (process.env.ERPNEXT_BASE_URL || '').replace(/\/$/, '');
+    const erpnextKey  = process.env.ERPNEXT_API_KEY;
+    const erpnextSec  = process.env.ERPNEXT_API_SECRET;
+
+    if (erpnextBase && erpnextKey && erpnextSec) {
+      const { HttpsProxyAgent } = require('https-proxy-agent');
+      const proxyUrl   = process.env.https_proxy || process.env.HTTPS_PROXY || '';
+      const httpsAgent = proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined;
+
+      const erpHttp = axios.create({
+        baseURL: erpnextBase,
+        headers: {
+          Authorization: `token ${erpnextKey}:${erpnextSec}`,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        timeout: 30_000,
+        ...(httpsAgent ? { httpsAgent, proxy: false } : {}),
+      });
+
+      // ERPNext accepts base64-encoded files via upload_file JSON endpoint
+      const fileName = `lease-signed-${documentId}.pdf`;
+      try {
+        await erpHttp.post('/api/method/upload_file', {
+          filename:   fileName,
+          filedata:   pdfBuffer.toString('base64'),
+          doctype:    'Lease',
+          docname:    lease.name,
+          is_private: 1,
+          folder:     'Home/Attachments',
+        });
+        logger.info('BoldSign: signed PDF attached to Lease', { lease: lease.name });
+      } catch (err) {
+        logger.error('BoldSign: could not attach PDF to Lease', { lease: lease.name, error: err.message });
+      }
+
+      // Mark lease as signed
+      try {
+        await api.updateLease(lease.name, { signed_agreement_received: 1 });
+      } catch (err) {
+        logger.error('BoldSign: could not update signed_agreement_received', { error: err.message });
+      }
+    }
+  }
+
+  // Fire lease.signed event (Telegram + tenant SMS)
+  await handle({
+    type: 'lease.signed',
+    data: {
+      documentId,
+      tenantName:  tenantDoc?.customer_name || tenantEmail,
+      tenantPhone: tenantDoc?.mobile_no     || '',
+      unitName:    lease?.property          || '',
+      startDate:   lease?.start_date        || '',
+    },
+  });
+}
+
+// ── SmartMove screening completed handler ─────────────────────────────────────
+
+async function handleSmartMoveCompleted(body) {
+  const notifyLandlord = require('../telegram/bot').notifyLandlord;
+  const api            = require('../api/index');
+
+  const applicantEmail = body?.applicant_email || '';
+  const reportType     = body?.report_type     || 'Standard';
+  const result         = body?.result          || {};  // credit / criminal / eviction
+  const invitationId   = body?.invitation_id   || '';
+
+  // Update CRM Lead status to "Screened"
+  if (applicantEmail) {
+    try {
+      const leads = await api.getCRMLeads({});
+      const lead  = leads.find(l => (l.email_id || '').toLowerCase() === applicantEmail.toLowerCase());
+      if (lead) {
+        await api.updateCRMLead(lead.name, { status: 'Screened' });
+      }
+    } catch (err) {
+      logger.error('SmartMove: could not update CRM Lead status', { error: err.message });
+    }
+  }
+
+  const creditSummary   = result.credit_score_range  || 'See report';
+  const criminalSummary = result.criminal_records > 0 ? 'See report' : 'Clear';
+  const evictionSummary = result.eviction_records > 0 ? 'See report' : 'Clear';
+  const dashboardUrl    = 'https://www.mysmartmove.com/SmartMove/login.go';
+
+  await notifyLandlord(
+    `✅ Screening complete: ${applicantEmail}\n` +
+    `  Credit:   ${creditSummary}\n` +
+    `  Criminal: ${criminalSummary}\n` +
+    `  Eviction: ${evictionSummary}\n` +
+    `  Report type: ${reportType}\n` +
+    `  View full report: ${dashboardUrl}`
+  );
 }
 
 // ── Health check ──────────────────────────────────────────────────────────────
@@ -131,6 +292,89 @@ function makeWebhookRouter() {
       },
     }).catch(err => logger.error('lease.expired handler error', { error: err.message }));
     res.json({ received: true });
+  });
+
+  // ── Rental application submitted (ERPNext Web Form) ─────────────────────────
+  router.post('/erpnext/application-submitted', validateSignature, async (req, res) => {
+    const d = req.body;
+    handle({
+      type: 'application.submitted',
+      data: {
+        leadName:      d.name,
+        firstName:     d.first_name  || '',
+        lastName:      d.last_name   || '',
+        email:         d.email_id    || '',
+        phone:         d.mobile_no   || '',
+        monthlyIncome: d.custom_monthly_gross_income || '',
+        occupants:     d.custom_number_of_occupants  || '',
+        hasEviction:   d.custom_has_eviction         || 'No',
+      },
+    }).catch(err => logger.error('application.submitted handler error', { error: err.message }));
+    res.json({ received: true });
+  });
+
+  // ── BoldSign: all parties have signed ───────────────────────────────────────
+  // Validation uses the X-BoldSign-Signature header:
+  //   Format:  "t=<unix-timestamp>, s0=<hex-hmac>"
+  //   Payload: "<timestamp>.<rawJsonBody>"
+  //   Secret:  BOLDSIGN_WEBHOOK_SECRET
+  router.post('/boldsign/completed', async (req, res) => {
+    const webhookSecret = process.env.BOLDSIGN_WEBHOOK_SECRET || '';
+    const sigHeader     = req.headers['x-boldsign-signature'] || '';
+    const rawBody       = req.rawBody || JSON.stringify(req.body);
+
+    if (webhookSecret && sigHeader) {
+      // Parse "t=123456, s0=abc123"
+      const parts = {};
+      for (const chunk of sigHeader.split(',')) {
+        const eq = chunk.indexOf('=');
+        if (eq === -1) continue;
+        parts[chunk.slice(0, eq).trim()] = chunk.slice(eq + 1).trim();
+      }
+      const timestamp  = parts['t'];
+      const receivedSig = parts['s0'] || '';
+
+      if (!timestamp || !receivedSig) {
+        logger.warn('BoldSign webhook: malformed signature header');
+        return res.status(401).json({ error: 'Invalid signature header' });
+      }
+
+      // Reject events older than 5 minutes (replay protection)
+      if (Math.abs(Date.now() / 1000 - Number(timestamp)) > 300) {
+        logger.warn('BoldSign webhook: timestamp too old');
+        return res.status(401).json({ error: 'Webhook timestamp expired' });
+      }
+
+      const signedPayload = `${timestamp}.${rawBody}`;
+      const expected = crypto
+        .createHmac('sha256', webhookSecret)
+        .update(signedPayload)
+        .digest('hex');
+
+      if (receivedSig.length !== expected.length ||
+          !crypto.timingSafeEqual(Buffer.from(receivedSig, 'hex'), Buffer.from(expected, 'hex'))) {
+        logger.warn('BoldSign webhook: invalid HMAC signature');
+        return res.status(401).json({ error: 'Invalid signature' });
+      }
+    }
+
+    // Acknowledge immediately
+    res.status(200).json({ received: true });
+
+    if (req.body?.eventType !== 'Completed') return;
+
+    setImmediate(() => handleBoldSignCompleted(req.body).catch(err =>
+      logger.error('BoldSign completed handler error', { error: err.message })
+    ));
+  });
+
+  // ── SmartMove: screening report ready ───────────────────────────────────────
+  router.post('/smartmove/completed', async (req, res) => {
+    res.json({ received: true });
+    const d = req.body || {};
+    setImmediate(() => handleSmartMoveCompleted(d).catch(err =>
+      logger.error('SmartMove completed handler error', { error: err.message })
+    ));
   });
 
   return router;

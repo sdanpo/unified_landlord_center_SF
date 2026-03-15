@@ -185,6 +185,203 @@ class ERPNextClient {
     return this._get('Lease', name);
   }
 
+  /**
+   * Return Active leases whose end_date falls within `daysAhead` days from today.
+   * @param {number} [daysAhead=90]
+   */
+  async getExpiringLeases(daysAhead = 90) {
+    const leases = await this._list('Lease', {
+      fields: ['*'],
+      orderBy: 'end_date asc',
+    });
+
+    const today   = new Date(); today.setHours(0, 0, 0, 0);
+    const horizon = new Date(today.getTime() + daysAhead * 86_400_000);
+
+    return leases.filter(l => {
+      if (l.lease_status !== 'Active') return false;
+      if (!l.end_date) return false;
+      const end = new Date(l.end_date);
+      return end >= today && end <= horizon;
+    });
+  }
+
+  /**
+   * Update a Lease field (e.g. custom_renewal_notice_sent, custom_renewal_action).
+   * @param {string} name    – Lease document name
+   * @param {Object} payload – fields to update
+   */
+  async updateLease(name, payload) {
+    return this._put('Lease', name, payload);
+  }
+
+  /**
+   * Return file attachments on a Lease record (signed PDFs, addenda, etc.).
+   * @param {string} leaseName – ERPNext Lease document name
+   */
+  async getLeaseFiles(leaseName) {
+    return this._list('File', {
+      fields: ['name', 'file_name', 'file_url', 'creation'],
+      filters: [
+        ['attached_to_doctype', '=', 'Lease'],
+        ['attached_to_name',    '=', leaseName],
+      ],
+      orderBy: 'creation desc',
+    });
+  }
+
+  // ─── Vendors (Supplier doctype) ────────────────────────────────────────────
+
+  /**
+   * List vendors (Suppliers), optionally filtered by trade.
+   * @param {Object} [params]
+   * @param {string} [params.trade]  – e.g. "Plumbing", "Electrical"
+   */
+  async getVendors({ trade } = {}) {
+    const all = await this._list('Supplier', {
+      fields: ['name', 'supplier_name', 'custom_trade', 'custom_rating', 'custom_sms_number', 'custom_license_number'],
+      orderBy: 'supplier_name asc',
+    });
+
+    return all.filter(v => {
+      if (trade && (v.custom_trade || '').toLowerCase() !== trade.toLowerCase()) return false;
+      return true;
+    });
+  }
+
+  /** Get a single Supplier (vendor) by ERPNext name. */
+  async getVendor(name) {
+    return this._get('Supplier', name);
+  }
+
+  /**
+   * Assign a vendor to an HD Ticket maintenance work order.
+   * @param {string} ticketName  – HD Ticket document name
+   * @param {string} vendorName  – Supplier document name
+   */
+  async assignVendor(ticketName, vendorName) {
+    return this._put('HD Ticket', ticketName, { custom_assigned_vendor: vendorName });
+  }
+
+  // ─── CRM Leads (rental applicants) ────────────────────────────────────────
+
+  /**
+   * List CRM Leads that came from the rental application form.
+   * @param {Object} [params]
+   * @param {string} [params.status]  – CRM Lead status (e.g. "New Application")
+   */
+  async getCRMLeads({ status } = {}) {
+    const filters = [['lead_source', '=', 'Online Application']];
+    if (status) filters.push(['status', '=', status]);
+
+    return this._list('CRM Lead', {
+      fields: ['name', 'first_name', 'last_name', 'email_id', 'mobile_no', 'status', 'creation'],
+      filters,
+      orderBy: 'creation desc',
+    });
+  }
+
+  /** Get a single CRM Lead by name. */
+  async getCRMLead(name) {
+    return this._get('CRM Lead', name);
+  }
+
+  /**
+   * Update a CRM Lead (e.g. change status after screening).
+   * @param {string} name
+   * @param {Object} payload
+   */
+  async updateCRMLead(name, payload) {
+    return this._put('CRM Lead', name, payload);
+  }
+
+  // ─── Late Fee Invoices ─────────────────────────────────────────────────────
+
+  /**
+   * Check whether a late fee invoice has already been created for the given
+   * original rent invoice on the given calendar date (daily dedup guard).
+   *
+   * @param {string} originalInvoiceName  – e.g. "ACC-SINV-2026-00009"
+   * @param {string} date                 – YYYY-MM-DD (today)
+   * @returns {Promise<boolean>}          – true if a late fee invoice already exists
+   */
+  async getTodayLateFeeForInvoice(originalInvoiceName, date) {
+    const results = await this._list('Sales Invoice', {
+      fields: ['name'],
+      filters: [
+        ['custom_is_late_fee',       '=', 1],
+        ['custom_original_invoice',  '=', originalInvoiceName],
+        ['custom_late_fee_date',     '=', date],
+      ],
+    });
+    return results.length > 0;
+  }
+
+  /**
+   * Check whether ANY late fee invoice has ever been created for the given
+   * original rent invoice (used to decide if this is the "first day" for SMS).
+   *
+   * @param {string} originalInvoiceName
+   * @returns {Promise<boolean>}
+   */
+  async hasAnyLateFeeForInvoice(originalInvoiceName) {
+    const results = await this._list('Sales Invoice', {
+      fields: ['name'],
+      filters: [
+        ['custom_is_late_fee',      '=', 1],
+        ['custom_original_invoice', '=', originalInvoiceName],
+      ],
+    });
+    return results.length > 0;
+  }
+
+  /**
+   * Create a late fee Sales Invoice against a tenant.
+   *
+   * @param {Object} p
+   * @param {string} p.customer             – ERPNext Customer name
+   * @param {string} p.company              – ERPNext Company name
+   * @param {number} p.feeAmount            – Dollar amount of the late fee
+   * @param {string} p.today                – YYYY-MM-DD
+   * @param {string} p.originalInvoiceName  – Rent invoice this fee belongs to
+   * @param {string} [p.customUnit]         – Propagated from the rent invoice
+   * @param {string} [p.customProperty]     – Propagated from the rent invoice
+   * @param {string} [p.customLease]        – Propagated from the rent invoice
+   * @param {boolean} [p.autoSubmit]        – If true, docstatus=1 (submitted); else draft
+   * @returns {Promise<{ name: string, submitted: boolean }>}
+   */
+  async createLateFeeInvoice({
+    customer, company, feeAmount, today,
+    originalInvoiceName, customUnit, customProperty, customLease,
+    autoSubmit = false,
+  }) {
+    const payload = {
+      customer,
+      company,
+      posting_date:            today,
+      due_date:                today,
+      items: [{
+        item_code: 'Late Fee',
+        qty:       1,
+        rate:      feeAmount,
+      }],
+      custom_is_late_fee:       1,
+      custom_original_invoice:  originalInvoiceName,
+      custom_late_fee_date:     today,
+      ...(customUnit     ? { custom_unit:     customUnit }     : {}),
+      ...(customProperty ? { custom_property: customProperty } : {}),
+      ...(customLease    ? { custom_lease:    customLease }    : {}),
+      docstatus: autoSubmit ? 1 : 0,
+    };
+
+    const { data } = await this.http.post(
+      '/api/resource/Sales%20Invoice',
+      payload
+    );
+
+    return { name: data.data.name, submitted: autoSubmit };
+  }
+
   // ─── Tenants ──────────────────────────────────────────────────────────────
 
   /**

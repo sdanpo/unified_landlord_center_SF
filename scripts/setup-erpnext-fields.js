@@ -73,8 +73,64 @@ const CUSTOM_FIELDS = [
   },
 
   // ── HD Ticket (Helpdesk module) ────────────────────────────────────────────
-  { dt: 'HD Ticket', fieldname: 'custom_unit',     label: 'Unit',     fieldtype: 'Data', insert_after: 'customer' },
-  { dt: 'HD Ticket', fieldname: 'custom_property', label: 'Property', fieldtype: 'Data', insert_after: 'custom_unit' },
+  { dt: 'HD Ticket', fieldname: 'custom_unit',            label: 'Unit',            fieldtype: 'Data',   insert_after: 'customer' },
+  { dt: 'HD Ticket', fieldname: 'custom_property',        label: 'Property',        fieldtype: 'Data',   insert_after: 'custom_unit' },
+  { dt: 'HD Ticket', fieldname: 'custom_ticket_type',     label: 'Ticket Type',     fieldtype: 'Select', insert_after: 'custom_property',
+    options: 'Maintenance\nLease Renewal\nMove-Out Notice\nOther' },
+  {
+    dt: 'HD Ticket', fieldname: 'custom_assigned_vendor', label: 'Assigned Vendor',
+    fieldtype: 'Link', options: 'Supplier',
+    insert_after: 'custom_ticket_type',
+  },
+  { dt: 'HD Ticket', fieldname: 'custom_vendor_quote',    label: 'Vendor Quote ($)', fieldtype: 'Currency', insert_after: 'custom_assigned_vendor' },
+  { dt: 'HD Ticket', fieldname: 'custom_quote_approved',  label: 'Quote Approved',  fieldtype: 'Check',    insert_after: 'custom_vendor_quote', default: '0' },
+
+  // ── Supplier (vendor directory) ────────────────────────────────────────────
+  { dt: 'Supplier', fieldname: 'custom_trade',          label: 'Trade / Specialty', fieldtype: 'Select', insert_after: 'supplier_type',
+    options: 'Plumbing\nElectrical\nHVAC\nPainting\nCarpentry\nLandscaping\nPest Control\nGeneral' },
+  { dt: 'Supplier', fieldname: 'custom_license_number', label: 'CA License #',      fieldtype: 'Data',   insert_after: 'custom_trade' },
+  { dt: 'Supplier', fieldname: 'custom_rating',         label: 'Rating',            fieldtype: 'Select', insert_after: 'custom_license_number',
+    options: '5 - Excellent\n4 - Good\n3 - Average\n2 - Below Average\n1 - Poor' },
+  { dt: 'Supplier', fieldname: 'custom_sms_number',     label: 'SMS / Mobile #',    fieldtype: 'Data',   insert_after: 'custom_rating' },
+
+  // ── Lease (renewal tracking) ───────────────────────────────────────────────
+  { dt: 'Lease', fieldname: 'custom_renewal_notice_sent', label: 'Renewal Notice Sent', fieldtype: 'Date',   insert_after: 'end_date' },
+  { dt: 'Lease', fieldname: 'custom_renewal_action',      label: 'Renewal Action',      fieldtype: 'Select', insert_after: 'custom_renewal_notice_sent',
+    options: '\nRenew\nVacating\nRent Increase' },
+
+  // ── Lease (late fee configuration) ────────────────────────────────────────
+  { dt: 'Lease', fieldname: 'custom_late_fee_grace_days',  label: 'Late Fee Grace Period (days)', fieldtype: 'Int',      insert_after: 'late_payment_interest_percentage', default: '5' },
+  { dt: 'Lease', fieldname: 'custom_late_fee_type',        label: 'Late Fee Type',                fieldtype: 'Select',   insert_after: 'custom_late_fee_grace_days',
+    options: 'Percentage\nFlat Amount', default: 'Percentage' },
+  { dt: 'Lease', fieldname: 'custom_late_fee_flat_amount', label: 'Daily Flat Late Fee ($)',      fieldtype: 'Currency', insert_after: 'custom_late_fee_type', default: '0' },
+
+  // ── Sales Invoice (late fee tracking / dedup) ──────────────────────────────
+  { dt: 'Sales Invoice', fieldname: 'custom_is_late_fee',       label: 'Is Late Fee',      fieldtype: 'Check',  insert_after: 'custom_lease', default: '0' },
+  {
+    dt: 'Sales Invoice', fieldname: 'custom_original_invoice', label: 'Original Invoice',
+    fieldtype: 'Link', options: 'Sales Invoice',
+    insert_after: 'custom_is_late_fee',
+  },
+  { dt: 'Sales Invoice', fieldname: 'custom_late_fee_date', label: 'Late Fee Date', fieldtype: 'Date', insert_after: 'custom_original_invoice' },
+
+  // ── CRM Lead (rental application fields) ──────────────────────────────────
+  { dt: 'CRM Lead', fieldname: 'custom_date_of_birth',           label: 'Date of Birth',               fieldtype: 'Date',       insert_after: 'mobile_no' },
+  { dt: 'CRM Lead', fieldname: 'custom_current_address',         label: 'Current Address',              fieldtype: 'Small Text', insert_after: 'custom_date_of_birth' },
+  { dt: 'CRM Lead', fieldname: 'custom_monthly_rent_paid',        label: 'Monthly Rent Paid Currently', fieldtype: 'Currency',   insert_after: 'custom_current_address' },
+  { dt: 'CRM Lead', fieldname: 'custom_current_landlord_name',   label: 'Current Landlord Name',       fieldtype: 'Data',       insert_after: 'custom_monthly_rent_paid' },
+  { dt: 'CRM Lead', fieldname: 'custom_current_landlord_phone',  label: 'Current Landlord Phone',      fieldtype: 'Data',       insert_after: 'custom_current_landlord_name' },
+  { dt: 'CRM Lead', fieldname: 'custom_monthly_gross_income',    label: 'Monthly Gross Income',        fieldtype: 'Currency',   insert_after: 'custom_current_landlord_phone' },
+  { dt: 'CRM Lead', fieldname: 'custom_employment_start_date',   label: 'Employment Start Date',       fieldtype: 'Date',       insert_after: 'custom_monthly_gross_income' },
+  { dt: 'CRM Lead', fieldname: 'custom_eviction_history',        label: 'Ever Evicted?',               fieldtype: 'Select',     insert_after: 'custom_employment_start_date',
+    options: '\nYes\nNo' },
+  { dt: 'CRM Lead', fieldname: 'custom_broken_lease_history',    label: 'Ever Broken a Lease?',        fieldtype: 'Select',     insert_after: 'custom_eviction_history',
+    options: '\nYes\nNo' },
+  { dt: 'CRM Lead', fieldname: 'custom_number_of_occupants',     label: 'Number of Occupants',         fieldtype: 'Int',        insert_after: 'custom_broken_lease_history' },
+  { dt: 'CRM Lead', fieldname: 'custom_has_pets',                label: 'Any Pets?',                   fieldtype: 'Select',     insert_after: 'custom_number_of_occupants',
+    options: '\nYes\nNo' },
+  { dt: 'CRM Lead', fieldname: 'custom_pet_description',         label: 'Pet Description',             fieldtype: 'Small Text', insert_after: 'custom_has_pets' },
+  { dt: 'CRM Lead', fieldname: 'custom_consent_background_check', label: 'Consent: Background Check', fieldtype: 'Check',      insert_after: 'custom_pet_description', default: '0' },
+  { dt: 'CRM Lead', fieldname: 'custom_consent_accuracy',        label: 'Consent: Info Is Accurate',   fieldtype: 'Check',      insert_after: 'custom_consent_background_check', default: '0' },
 ];
 
 /** Check whether a DocType exists on the ERPNext instance. */

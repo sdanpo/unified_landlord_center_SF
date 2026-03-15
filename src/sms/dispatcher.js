@@ -83,6 +83,45 @@ const templates = {
     return `Maintenance complete: "${description}" at ${unit} has been resolved. ` +
            'Please contact us if you have any concerns.';
   },
+
+  /**
+   * Lease renewal notice to tenant approaching end date.
+   * @param {{ tenantName: string, unit: string, endDate: string, daysLeft: number }} p
+   */
+  leaseRenewalNotice({ tenantName, unit, endDate, daysLeft }) {
+    return `Hi ${tenantName}, your lease at ${unit} ends on ${endDate} (${daysLeft} days). ` +
+           'Please contact us to discuss renewal options. Reply STOP to opt out.';
+  },
+
+  /**
+   * Confirmation to tenant once all parties have signed the lease.
+   * @param {{ unit: string, startDate: string }} p
+   */
+  leaseSignedConfirmation({ unit, startDate }) {
+    return `Your lease for ${unit} starting ${startDate} has been fully signed by all parties. ` +
+           'Welcome! Contact us anytime at this number with questions.';
+  },
+
+  /**
+   * Sent to the tenant on the FIRST day a late fee is charged for an invoice.
+   * Subsequent daily fees do NOT trigger additional SMS (to avoid fatigue).
+   * @param {{ unit: string, feeAmount: number, totalDue: number, dayNumber: number }} p
+   */
+  lateFeeCharged({ unit, feeAmount, totalDue, dayNumber }) {
+    return `Late fee of $${feeAmount.toFixed(2)} added to your balance at ${unit} ` +
+           `(day ${dayNumber} overdue). Total now due: $${totalDue.toFixed(2)}. ` +
+           'Pay at your tenant portal to stop daily charges.';
+  },
+
+  /**
+   * Work order notification sent to a vendor/contractor.
+   * @param {{ ticketId: string, subject: string, unitAddress: string, tenantName: string, tenantPhone: string }} p
+   */
+  vendorWorkOrder({ ticketId, subject, unitAddress, tenantName, tenantPhone }) {
+    return `New work order [${ticketId}]: "${subject}" at ${unitAddress}. ` +
+           `Tenant: ${tenantName}${tenantPhone ? ' ' + tenantPhone : ''}. ` +
+           'Please reply to confirm or call the office.';
+  },
 };
 
 module.exports = { send, templates };

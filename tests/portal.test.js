@@ -233,7 +233,8 @@ describe('Portal setup script – helper functions', () => {
 
   describe('PORTAL_MENU_ITEMS', () => {
     test('includes invoices page with Customer role', () => {
-      const item = helpers.PORTAL_MENU_ITEMS.find(m => m.route === '/invoices');
+      // The portal uses /my-invoices (a custom Web Page) instead of /invoices
+      const item = helpers.PORTAL_MENU_ITEMS.find(m => m.route === '/my-invoices');
       expect(item).toBeDefined();
       expect(item.enabled).toBe(1);
       expect(item.role).toBe('Customer');

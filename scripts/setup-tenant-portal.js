@@ -134,6 +134,20 @@ const PORTAL_MENU_ITEMS = [
     reference_doctype: 'Address',
     role: 'Customer',
   },
+  {
+    title: 'My Lease',
+    enabled: 1,
+    route: '/my-lease',
+    reference_doctype: 'Lease',
+    role: 'Customer',
+  },
+  {
+    title: 'My Documents',
+    enabled: 1,
+    route: '/my-docs',
+    reference_doctype: 'File',
+    role: 'Customer',
+  },
   // "My Profile" omitted — Frappe's built-in "My Account" (/me) is already shown
   // in the standard portal header; a second entry would be a duplicate.
 ];
@@ -741,6 +755,219 @@ ${ACH_SCRIPT_MARKER}`.trimStart();
   console.log(`  ✓ Payment history sidebar link: ${webhookBase}/payment-history`);
 }
 
+// ── 6c. My Lease Web Page at /my-lease ────────────────────────────────────────
+// Shows the logged-in tenant's current active lease: unit, dates, rent,
+// days remaining, and a "Request Renewal" button that opens a helpdesk ticket.
+
+async function configureMyLeasePage() {
+  console.log('\n── 6c. My Lease Web Page (/my-lease) ─────────────────────────');
+
+  const pageBody = [
+    '<div id="my-lease-wrap"><p class="text-muted">Loading lease information&hellip;</p></div>',
+    '<script>',
+    '(function () {',
+    '  var wrap = document.getElementById("my-lease-wrap");',
+    '  var params = new URLSearchParams({',
+    '    filters: JSON.stringify([["lease_status","=","Active"]]),',
+    '    fields:  JSON.stringify(["name","property","start_date","end_date","lease_status"]),',
+    '    limit_page_length: "1",',
+    '    order_by: "start_date desc"',
+    '  });',
+    '  fetch("/api/resource/Lease?" + params.toString(), {',
+    '    credentials: "include",',
+    '    headers: { "Accept": "application/json" }',
+    '  })',
+    '  .then(function (res) { return res.json(); })',
+    '  .then(function (data) {',
+    '    var leases = data.data || [];',
+    '    if (!leases.length) {',
+    '      wrap.innerHTML = \'<p class="text-muted mt-3">No active lease found.</p>\';',
+    '      return;',
+    '    }',
+    '    var l = leases[0];',
+    '    var today = new Date(); today.setHours(0,0,0,0);',
+    '    var end = new Date(l.end_date);',
+    '    var daysLeft = Math.ceil((end - today) / 86400000);',
+    '    var color = daysLeft > 90 ? "green" : (daysLeft > 30 ? "orange" : "red");',
+    '    var fmtDate = function(d) {',
+    '      return new Date(d).toLocaleDateString("en-US", { year:"numeric", month:"long", day:"numeric" });',
+    '    };',
+    '    wrap.innerHTML =',
+    '      \'<div class="card" style="max-width:540px;margin:0 auto;">\' +',
+    '      \'<div class="card-body">\' +',
+    '      \'<h5 class="card-title mb-3">Active Lease</h5>\' +',
+    '      \'<dl class="row mb-0">\' +',
+    '      \'<dt class="col-sm-4">Unit</dt><dd class="col-sm-8">\' + (l.property || "—") + \'</dd>\' +',
+    '      \'<dt class="col-sm-4">Start date</dt><dd class="col-sm-8">\' + fmtDate(l.start_date) + \'</dd>\' +',
+    '      \'<dt class="col-sm-4">End date</dt><dd class="col-sm-8">\' + fmtDate(l.end_date) + \'</dd>\' +',
+    '      \'<dt class="col-sm-4">Days remaining</dt>\' +',
+    '      \'<dd class="col-sm-8"><span class="indicator-pill \' + color + \'">\' + daysLeft + \' days</span></dd>\' +',
+    '      \'</dl>\' +',
+    '      \'<a href="/helpdesk/new-ticket?subject=Lease+Renewal+Request&custom_ticket_type=Lease+Renewal" \' +',
+    '        \'class="btn btn-primary btn-sm mt-3">Request Renewal</a>\' +',
+    '      \'</div></div>\';',
+    '  })',
+    '  .catch(function () {',
+    '    wrap.innerHTML = \'<p class="text-danger mt-3">Could not load lease. Please log in and try again.</p>\';',
+    '  });',
+    '})();',
+    '<\/script>',
+  ].join('\n');
+
+  await upsert('Web Page', 'my-lease', {
+    title: 'My Lease',
+    route: 'my-lease',
+    published: 1,
+    content_type: 'HTML',
+    main_section_html: pageBody,
+    show_sidebar: 1,
+    full_width: 1,
+  });
+
+  console.log('  ✓ Web Page ready: /my-lease');
+}
+
+// ── 6d. My Documents Web Page at /my-docs ─────────────────────────────────────
+// Lists files attached to the tenant's Lease record (signed PDFs, addenda,
+// inspection reports) with download links.
+
+async function configureMyDocsPage() {
+  console.log('\n── 6d. My Documents Web Page (/my-docs) ──────────────────────');
+
+  const pageBody = [
+    '<div id="my-docs-wrap"><p class="text-muted">Loading documents&hellip;</p></div>',
+    '<script>',
+    '(function () {',
+    '  var wrap = document.getElementById("my-docs-wrap");',
+    '  // Step 1: find the tenant\'s active lease',
+    '  var leaseParams = new URLSearchParams({',
+    '    filters: JSON.stringify([["lease_status","=","Active"]]),',
+    '    fields:  JSON.stringify(["name"]),',
+    '    limit_page_length: "1"',
+    '  });',
+    '  fetch("/api/resource/Lease?" + leaseParams.toString(), {',
+    '    credentials: "include", headers: { "Accept": "application/json" }',
+    '  })',
+    '  .then(function (r) { return r.json(); })',
+    '  .then(function (data) {',
+    '    var leases = data.data || [];',
+    '    if (!leases.length) {',
+    '      wrap.innerHTML = \'<p class="text-muted mt-3">No active lease found.</p>\';',
+    '      return;',
+    '    }',
+    '    var leaseName = leases[0].name;',
+    '    // Step 2: fetch files attached to this lease',
+    '    var fileParams = new URLSearchParams({',
+    '      filters: JSON.stringify([["attached_to_doctype","=","Lease"],["attached_to_name","=",leaseName]]),',
+    '      fields:  JSON.stringify(["name","file_name","file_url","creation"]),',
+    '      limit_page_length: "50",',
+    '      order_by: "creation desc"',
+    '    });',
+    '    return fetch("/api/resource/File?" + fileParams.toString(), {',
+    '      credentials: "include", headers: { "Accept": "application/json" }',
+    '    }).then(function (r) { return r.json(); });',
+    '  })',
+    '  .then(function (data) {',
+    '    if (!data) return;',
+    '    var files = data.data || [];',
+    '    if (!files.length) {',
+    '      wrap.innerHTML = \'<p class="text-muted mt-3">No documents on file yet.</p>\';',
+    '      return;',
+    '    }',
+    '    var rows = files.map(function (f) {',
+    '      var date = new Date(f.creation).toLocaleDateString("en-US", { year:"numeric", month:"short", day:"numeric" });',
+    '      var name = f.file_name || f.name;',
+    '      return \'<div class="list-group-item d-flex justify-content-between align-items-center">\' +',
+    '        \'<div>\' +',
+    '        \'<span style="margin-right:8px;">📄</span>\' +',
+    '        \'<strong>\' + name + \'</strong>\' +',
+    '        \'<span class="text-muted ml-2 small">\' + date + \'</span>\' +',
+    '        \'</div>\' +',
+    '        \'<a href="\' + (f.file_url || "#") + \'" target="_blank" rel="noopener" \' +',
+    '          \'class="btn btn-sm btn-outline-secondary">Download</a>\' +',
+    '        \'</div>\';',
+    '    }).join("");',
+    '    wrap.innerHTML = \'<div class="list-group">\' + rows + \'</div>\';',
+    '  })',
+    '  .catch(function () {',
+    '    wrap.innerHTML = \'<p class="text-danger mt-3">Could not load documents. Please log in and try again.</p>\';',
+    '  });',
+    '})();',
+    '<\/script>',
+  ].join('\n');
+
+  await upsert('Web Page', 'my-docs', {
+    title: 'My Documents',
+    route: 'my-docs',
+    published: 1,
+    content_type: 'HTML',
+    main_section_html: pageBody,
+    show_sidebar: 1,
+    full_width: 1,
+  });
+
+  console.log('  ✓ Web Page ready: /my-docs');
+}
+
+// ── 6e. Rental Application Web Form at /apply ─────────────────────────────────
+// Public (no login required) Web Form that creates a CRM Lead on submit.
+// Custom fields on CRM Lead (created by setup-erpnext-fields.js) capture
+// all application-specific data.
+
+async function configureApplyWebForm() {
+  console.log('\n── 6e. Rental Application Web Form (/apply) ─────────────────');
+
+  await upsert('Web Form', 'Rental Application', {
+    title: 'Rental Application',
+    route: 'apply',
+    doc_type: 'CRM Lead',
+    login_required: 0,
+    published: 1,
+    allow_multiple: 1,
+    button_label: 'Submit Application',
+    success_message: 'We received your application and will be in touch within 2 business days.',
+    web_form_fields: [
+      // Personal Information
+      { fieldtype: 'Section Break', label: 'Personal Information' },
+      { fieldname: 'first_name',               label: 'First Name',       fieldtype: 'Data',       reqd: 1 },
+      { fieldname: 'last_name',                label: 'Last Name',        fieldtype: 'Data',       reqd: 1 },
+      { fieldname: 'email_id',                 label: 'Email',            fieldtype: 'Data',       reqd: 1 },
+      { fieldname: 'mobile_no',                label: 'Phone',            fieldtype: 'Data',       reqd: 1 },
+      { fieldname: 'custom_date_of_birth',     label: 'Date of Birth',    fieldtype: 'Date',       reqd: 1 },
+      // Current Housing
+      { fieldtype: 'Section Break', label: 'Current Housing' },
+      { fieldname: 'custom_current_address',         label: 'Current Address',             fieldtype: 'Small Text', reqd: 1 },
+      { fieldname: 'custom_monthly_rent_paid',        label: 'Monthly Rent Paid Currently', fieldtype: 'Currency',   reqd: 1 },
+      { fieldname: 'custom_current_landlord_name',   label: 'Current Landlord Name',       fieldtype: 'Data' },
+      { fieldname: 'custom_current_landlord_phone',  label: 'Current Landlord Phone',      fieldtype: 'Data' },
+      // Employment
+      { fieldtype: 'Section Break', label: 'Employment' },
+      { fieldname: 'company',                      label: 'Employer Name',         fieldtype: 'Data',     reqd: 1 },
+      { fieldname: 'designation',                  label: 'Job Title',             fieldtype: 'Data' },
+      { fieldname: 'custom_monthly_gross_income',  label: 'Monthly Gross Income',  fieldtype: 'Currency', reqd: 1 },
+      { fieldname: 'custom_employment_start_date', label: 'Employment Start Date', fieldtype: 'Date' },
+      // Rental History
+      { fieldtype: 'Section Break', label: 'Rental History' },
+      { fieldname: 'custom_eviction_history',     label: 'Have you ever been evicted?',   fieldtype: 'Select', reqd: 1, options: '\nYes\nNo' },
+      { fieldname: 'custom_broken_lease_history', label: 'Have you ever broken a lease?', fieldtype: 'Select', reqd: 1, options: '\nYes\nNo' },
+      // Occupants
+      { fieldtype: 'Section Break', label: 'Occupants' },
+      { fieldname: 'custom_number_of_occupants', label: 'Number of Occupants', fieldtype: 'Int',    reqd: 1 },
+      { fieldname: 'custom_has_pets',            label: 'Any Pets?',           fieldtype: 'Select', reqd: 1, options: '\nYes\nNo' },
+      { fieldname: 'custom_pet_description',     label: 'Pet Description (breed, size)', fieldtype: 'Small Text' },
+      // Consent
+      { fieldtype: 'Section Break', label: 'Consent' },
+      { fieldname: 'custom_consent_background_check', label: 'I authorize a background and credit check', fieldtype: 'Check', reqd: 1 },
+      { fieldname: 'custom_consent_accuracy',         label: 'I certify all information provided is accurate', fieldtype: 'Check', reqd: 1 },
+      // Hidden defaults
+      { fieldname: 'lead_source', label: 'Lead Source', fieldtype: 'Data', hidden: 1, default: 'Online Application' },
+      { fieldname: 'status',      label: 'Status',      fieldtype: 'Data', hidden: 1, default: 'New Application' },
+    ],
+  });
+
+  console.log('  ✓ Web Form ready: /apply');
+}
+
 // ── 0. Cancel blocking Payment Requests ───────────────────────────────────────
 // When a "Requested" Payment Request exists for an invoice, make_payment_request
 // throws a 417 error ("Cannot cancel a submitted Payment Request") and the portal
@@ -844,15 +1071,39 @@ async function main() {
     console.error(`  ✗ Pay button ACH script failed: ${detail}`);
   }
 
+  try {
+    await configureMyLeasePage();
+  } catch (e) {
+    const detail = e.response?.data?.exception || e.message;
+    console.warn('  ⚠  configureMyLeasePage error (non-fatal):', detail);
+  }
+
+  try {
+    await configureMyDocsPage();
+  } catch (e) {
+    const detail = e.response?.data?.exception || e.message;
+    console.warn('  ⚠  configureMyDocsPage error (non-fatal):', detail);
+  }
+
+  try {
+    await configureApplyWebForm();
+  } catch (e) {
+    const detail = e.response?.data?.exception || e.message;
+    console.warn('  ⚠  configureApplyWebForm error (non-fatal):', detail);
+  }
+
   const webhookBase = (process.env.WEBHOOK_BASE_URL || '').replace(/\/$/, '');
   const achReady = webhookBase && webhookBase !== 'https://your-server.example.com';
 
   console.log('\n✓ Tenant portal setup complete.\n');
   console.log('Next steps:');
   console.log(`  1. Tenants log in at:             ${BASE}/login`);
-  console.log(`  2. Outstanding invoices:          ${BASE}/invoices`);
+  console.log(`  2. Outstanding invoices:          ${BASE}/my-invoices`);
   console.log(`  3. Paid invoices:                 ${BASE}/paid-invoices`);
   console.log(`  4. Maintenance tickets:           ${BASE}/helpdesk`);
+  console.log(`  5. Lease details:                 ${BASE}/my-lease`);
+  console.log(`  6. Lease documents:               ${BASE}/my-docs`);
+  console.log(`  7. Rental application form:       ${BASE}/apply`);
   if (!achReady) {
     console.log('  5. Set WEBHOOK_BASE_URL to your Railway app URL and re-run to enable ACH');
     console.log('     bank transfer on the portal Pay button.\n');
@@ -862,7 +1113,7 @@ async function main() {
 }
 
 // Export helpers for unit testing
-module.exports = { getDoc, upsert, listDocs, ensurePortalUser, PORTAL_MENU_ITEMS, PAYMENT_REQUEST_CUSTOM_PERMS, SALES_INVOICE_CUSTOM_PERMS, ACH_SCRIPT_MARKER, ALL_INV_MARKER, configureMyInvoicesPage, configurePaidInvoicesPage };
+module.exports = { getDoc, upsert, listDocs, ensurePortalUser, PORTAL_MENU_ITEMS, PAYMENT_REQUEST_CUSTOM_PERMS, SALES_INVOICE_CUSTOM_PERMS, ACH_SCRIPT_MARKER, ALL_INV_MARKER, configureMyInvoicesPage, configurePaidInvoicesPage, configureMyLeasePage, configureMyDocsPage, configureApplyWebForm };
 
 // Only run when invoked directly (not when required by tests)
 if (require.main === module) {
