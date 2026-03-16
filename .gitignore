@@ -5,3 +5,4 @@ coverage/
 logs/
 dist/
 .DS_Store
+tests/screenshots/
