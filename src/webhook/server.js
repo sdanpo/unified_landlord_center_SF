@@ -310,7 +310,7 @@ function makeWebhookRouter() {
         hasEviction:        d.custom_eviction_history        || 'No',
         interestedProperty: d.custom_interested_property     || '',
       },
-    }).catch(err => logger.error('application.submitted handler error', { error: err.message }));
+    }).catch(err => logger.error('application.submitted handler error', { error: err.message, stack: err.stack }));
     res.json({ received: true });
   });
 
