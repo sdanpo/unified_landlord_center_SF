@@ -946,9 +946,14 @@ async function customFieldExists(dt, fieldname) {
 async function ensureLeadApplicationFields() {
   const FIELDS = [
     // Standard fields that may be absent on some ERPNext versions:
-    { fieldname: 'designation',  label: 'Job Title',   fieldtype: 'Data',   insert_after: 'company' },
+    { fieldname: 'designation',  label: 'Job Title',   fieldtype: 'Data',   insert_after: 'custom_employer_name' },
     { fieldname: 'lead_source',  label: 'Lead Source', fieldtype: 'Select',
       options: '\nOnline Application\nCold Call\nReferral\nOther',           insert_after: 'status' },
+    // custom_employer_name replaces the 'company' Link field (which is a Link → Company doctype
+    // in ERPNext Lead).  Using 'company' directly in the web form causes a
+    // "Could not find Company: <name>" validation error on submit for any employer
+    // name that is not an existing ERPNext Company record.
+    { fieldname: 'custom_employer_name', label: 'Employer Name', fieldtype: 'Data', insert_after: 'mobile_no' },
     // Custom application fields (same as setup-erpnext-fields.js Lead section):
     { fieldname: 'custom_date_of_birth',            label: 'Date of Birth',               fieldtype: 'Date',       insert_after: 'mobile_no' },
     { fieldname: 'custom_current_address',          label: 'Current Address',             fieldtype: 'Small Text', insert_after: 'custom_date_of_birth' },
@@ -997,7 +1002,11 @@ async function configureApplyWebForm() {
   console.log('  Ensuring Lead application fields exist …');
   await ensureLeadApplicationFields();
 
-  await upsert('Web Form', 'Rental Application', {
+  // Frappe derives the Web Form docname from the title slug: 'Rental Application' → 'rental-application'.
+  // We must use 'rental-application' as the lookup key so getDoc() finds the existing record
+  // on subsequent runs (avoiding DuplicateEntryError).
+  await upsert('Web Form', 'rental-application', {
+    name:  'rental-application',
     title: 'Rental Application',
     route: 'apply',
     doc_type: 'Lead',
@@ -1022,7 +1031,7 @@ async function configureApplyWebForm() {
       { fieldname: 'custom_current_landlord_phone',  label: 'Current Landlord Phone',      fieldtype: 'Data' },
       // Employment
       { fieldname: 'sb_employment',            label: 'Employment',            fieldtype: 'Section Break' },
-      { fieldname: 'company',                      label: 'Employer Name',         fieldtype: 'Data',     reqd: 1 },
+      { fieldname: 'custom_employer_name',             label: 'Employer Name',         fieldtype: 'Data',     reqd: 1 },
       { fieldname: 'designation',                  label: 'Job Title',             fieldtype: 'Data' },
       { fieldname: 'custom_monthly_gross_income',  label: 'Monthly Gross Income',  fieldtype: 'Currency', reqd: 1 },
       { fieldname: 'custom_employment_start_date', label: 'Employment Start Date', fieldtype: 'Date' },
