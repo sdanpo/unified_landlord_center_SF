@@ -106,6 +106,13 @@ function _registerHandlers(b) {
 
   b.on('polling_error', (err) => {
     logger.error('Telegram polling error', { error: err.message, code: err.code });
+    if (err.message && err.message.includes('409')) {
+      logger.warn('Telegram 409 conflict — another instance still running, retrying in 15 s');
+      b.stopPolling()
+        .then(() => new Promise(resolve => setTimeout(resolve, 15000)))
+        .then(() => b.startPolling())
+        .catch(restartErr => logger.error('Telegram polling restart failed', { error: restartErr.message }));
+    }
   });
 
   b.on('error', (err) => {
@@ -136,7 +143,7 @@ function createBot() {
   const proxyUrl = process.env.HTTPS_PROXY || process.env.https_proxy;
 
   bot = new TelegramBot(config.telegram.botToken, {
-    polling: true,
+    polling: { interval: 300, params: { timeout: 10 } },
     ...(proxyUrl && { request: { proxy: proxyUrl } }),
   });
 
