@@ -114,7 +114,7 @@ describe('ensureLeadApplicationFields()', () => {
     await expect(h.ensureLeadApplicationFields()).resolves.toBeUndefined();
   });
 
-  test('creates all 16 expected fields (14 custom + designation + lead_source)', async () => {
+  test('creates all 17 expected fields (15 custom + designation + lead_source)', async () => {
     mockGet.mockResolvedValue({ data: { data: [] } });
     mockPost.mockResolvedValue({ data: { data: { name: 'ok' } } });
 
@@ -126,6 +126,9 @@ describe('ensureLeadApplicationFields()', () => {
 
     const expectedFields = [
       'designation', 'lead_source',
+      // custom_employer_name replaces the 'company' Link field to avoid the
+      // "Could not find Company: <name>" validation error on web form submit
+      'custom_employer_name',
       'custom_date_of_birth', 'custom_current_address', 'custom_monthly_rent_paid',
       'custom_current_landlord_name', 'custom_current_landlord_phone',
       'custom_monthly_gross_income', 'custom_employment_start_date',
@@ -340,6 +343,9 @@ describe('configureApplyWebForm()', () => {
     const fields = wfPost[1].web_form_fields.map(f => f.fieldname);
 
     const requiredCustomFields = [
+      // custom_employer_name replaces 'company' (Link → Company doctype) which causes
+      // "Could not find Company: <name>" validation errors on web form submit
+      'custom_employer_name',
       'custom_date_of_birth', 'custom_current_address', 'custom_monthly_rent_paid',
       'custom_current_landlord_name', 'custom_current_landlord_phone',
       'custom_monthly_gross_income', 'custom_employment_start_date',
@@ -366,12 +372,12 @@ describe('configureApplyWebForm()', () => {
   test('updates the existing Web Form via PUT when it already exists', async () => {
     // All customFieldExists → true (fields exist), Web Form already exists
     mockGet.mockResolvedValue({ data: { data: { name: 'ok' } } });
-    mockPut.mockResolvedValue({ data: { data: { name: 'Rental Application' } } });
+    mockPut.mockResolvedValue({ data: { data: { name: 'rental-application' } } });
 
     await h.configureApplyWebForm();
 
     expect(mockPut).toHaveBeenCalledWith(
-      '/api/resource/Web%20Form/Rental%20Application',
+      '/api/resource/Web%20Form/rental-application',
       expect.objectContaining({ doc_type: 'Lead' })
     );
     expect(mockPost).not.toHaveBeenCalledWith('/api/resource/Web%20Form', expect.any(Object));
