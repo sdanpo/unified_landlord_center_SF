@@ -896,7 +896,11 @@ async function configureMyDocsPage() {
     '<\/script>',
   ].join('\n');
 
-  await upsert('Web Page', 'my-docs', {
+  // NOTE: Frappe derives the Web Page document name from the title slug
+  // ('My Documents' → 'my-documents'), not from the name we pass.
+  // Using 'my-documents' here lets upsert() find the existing record via
+  // getDoc() and PUT instead of failing with a DuplicateEntryError.
+  await upsert('Web Page', 'my-documents', {
     title: 'My Documents',
     route: 'my-docs',
     published: 1,
@@ -1189,7 +1193,7 @@ async function main() {
 }
 
 // Export helpers for unit testing
-module.exports = { getDoc, upsert, listDocs, ensurePortalUser, PORTAL_MENU_ITEMS, PAYMENT_REQUEST_CUSTOM_PERMS, SALES_INVOICE_CUSTOM_PERMS, ACH_SCRIPT_MARKER, ALL_INV_MARKER, configureMyInvoicesPage, configurePaidInvoicesPage, configureMyLeasePage, configureMyDocsPage, configureApplyWebForm };
+module.exports = { getDoc, upsert, listDocs, ensurePortalUser, PORTAL_MENU_ITEMS, PAYMENT_REQUEST_CUSTOM_PERMS, SALES_INVOICE_CUSTOM_PERMS, ACH_SCRIPT_MARKER, ALL_INV_MARKER, configureMyInvoicesPage, configurePaidInvoicesPage, configureMyLeasePage, configureMyDocsPage, configureApplyWebForm, customFieldExists, ensureLeadApplicationFields };
 
 // Only run when invoked directly (not when required by tests)
 if (require.main === module) {
