@@ -30,7 +30,8 @@ function validateSignature(req, res, next) {
   if (!secret) return next(); // skip when no secret is configured (dev mode)
 
   const sig  = req.headers['x-frappe-webhook-signature'] || '';
-  const body = req.rawBody || JSON.stringify(req.body);
+  const body = req.rawBody !== undefined ? req.rawBody
+             : req.body    !== undefined ? JSON.stringify(req.body) : '';
 
   // Accept two signature formats:
   //   hex    – used by our own tests and direct API callers
@@ -52,6 +53,29 @@ function validateSignature(req, res, next) {
 // Middleware to capture raw request body for signature validation
 function captureRawBody(req, _res, buf) {
   req.rawBody = buf.toString();
+}
+
+// Fallback middleware: captures the raw body for requests whose Content-Type doesn't
+// match json or urlencoded (e.g. Frappe webhooks sent without a recognised header).
+// Runs AFTER body parsers so the stream is still available when they skip.
+function ensureRawBody(req, _res, next) {
+  if (req.rawBody !== undefined) return next(); // already captured by a body-parser verify cb
+  if (req._body) {
+    // A body parser consumed the stream but didn't set rawBody (shouldn't happen, but safe)
+    req.rawBody = req.body !== undefined ? JSON.stringify(req.body) : '';
+    return next();
+  }
+  // Neither parser ran – read the raw stream ourselves
+  const chunks = [];
+  req.on('data', chunk => chunks.push(chunk));
+  req.on('end', () => {
+    req.rawBody = Buffer.concat(chunks).toString();
+    if (req.body === undefined) {
+      try { req.body = JSON.parse(req.rawBody); } catch (_) { req.body = {}; }
+    }
+    next();
+  });
+  req.on('error', next);
 }
 
 // ── BoldSign completion handler ────────────────────────────────────────────────
@@ -1009,6 +1033,7 @@ function createWebhookApp() {
   const app = express();
   app.use(express.json({ verify: captureRawBody }));
   app.use(express.urlencoded({ extended: true, verify: captureRawBody }));
+  app.use(ensureRawBody); // fallback: capture raw body for unrecognised Content-Types
   app.use('/webhooks', makeWebhookRouter());
   app.use('/webhooks', makeStripeWebhookRouter());
   app.use('/', makePublicApiRouter());
