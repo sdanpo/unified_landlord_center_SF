@@ -4,6 +4,7 @@
  * Unit tests for the webhook HTTP server routes.
  *
  * Covers:
+ *  – GET  /api/properties-for-apply
  *  – POST /webhooks/erpnext/application-submitted
  *  – POST /webhooks/boldsign/completed  (signature validation + event routing)
  *  – POST /webhooks/smartmove/completed
@@ -42,6 +43,7 @@ jest.mock('../src/api/boldsign', () => ({
 }));
 jest.mock('../src/api/index', () => ({
   getTenants:      jest.fn().mockResolvedValue([]),
+  getProperties:   jest.fn().mockResolvedValue([]),
   getLeases:       jest.fn().mockResolvedValue([]),
   getCRMLeads:     jest.fn().mockResolvedValue([]),
   updateCRMLead:   jest.fn().mockResolvedValue({}),
@@ -384,5 +386,69 @@ describe('SMS templates', () => {
     expect(msg).toContain('Broken heater');
     expect(msg).toContain('512 Maple St');
     expect(msg).toContain('+14155551001');
+  });
+});
+
+// ─── GET /api/properties-for-apply ───────────────────────────────────────────
+
+describe('GET /api/properties-for-apply', () => {
+  const apiMock = require('../src/api/index');
+
+  test('returns empty array when no properties exist', async () => {
+    apiMock.getProperties.mockResolvedValueOnce([]);
+    apiMock.getLeases.mockResolvedValueOnce([]);
+    const res = await supertest(app).get('/api/properties-for-apply');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([]);
+  });
+
+  test('vacant property appears first with "Available Now" label', async () => {
+    apiMock.getProperties.mockResolvedValueOnce([
+      { name: 'PROP-001', name1: 'Unit A', status: 'Available', rent: 2500, bedroom: 1 },
+      { name: 'PROP-002', name1: 'Unit B', status: 'On Lease',  rent: 3000, bedroom: 2 },
+    ]);
+    apiMock.getLeases.mockResolvedValueOnce([
+      { property: 'PROP-002', end_date: '2027-01-31', lease_status: 'Active' },
+    ]);
+    const res = await supertest(app).get('/api/properties-for-apply');
+    expect(res.status).toBe(200);
+    expect(res.body[0].value).toBe('Unit A');
+    expect(res.body[0].label).toContain('Available Now');
+    expect(res.body[1].value).toBe('Unit B');
+    expect(res.body[1].label).toContain('Available after');
+    expect(res.body[1].label).toContain('Jan');
+  });
+
+  test('occupied properties sorted by lease end_date ascending', async () => {
+    apiMock.getProperties.mockResolvedValueOnce([
+      { name: 'PROP-A', name1: 'Unit A', status: 'On Lease', rent: 2000, bedroom: 1 },
+      { name: 'PROP-B', name1: 'Unit B', status: 'On Lease', rent: 2500, bedroom: 2 },
+    ]);
+    apiMock.getLeases.mockResolvedValueOnce([
+      { property: 'PROP-A', end_date: '2027-06-30', lease_status: 'Active' },
+      { property: 'PROP-B', end_date: '2026-12-31', lease_status: 'Active' },
+    ]);
+    const res = await supertest(app).get('/api/properties-for-apply');
+    expect(res.status).toBe(200);
+    expect(res.body[0].value).toBe('Unit B'); // earlier end date → listed first
+    expect(res.body[1].value).toBe('Unit A');
+  });
+
+  test('includes rent and bedroom count in label', async () => {
+    apiMock.getProperties.mockResolvedValueOnce([
+      { name: 'PROP-001', name1: 'Unit C', status: 'Available', rent: 3200, bedroom: 3 },
+    ]);
+    apiMock.getLeases.mockResolvedValueOnce([]);
+    const res = await supertest(app).get('/api/properties-for-apply');
+    expect(res.status).toBe(200);
+    expect(res.body[0].label).toContain('3,200');
+    expect(res.body[0].label).toContain('3br');
+  });
+
+  test('sets Access-Control-Allow-Origin: * header', async () => {
+    apiMock.getProperties.mockResolvedValueOnce([]);
+    apiMock.getLeases.mockResolvedValueOnce([]);
+    const res = await supertest(app).get('/api/properties-for-apply');
+    expect(res.headers['access-control-allow-origin']).toBe('*');
   });
 });

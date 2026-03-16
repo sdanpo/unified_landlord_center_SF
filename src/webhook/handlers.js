@@ -86,6 +86,7 @@ async function handle(event) {
         `  Email: ${data.email}   Phone: ${data.phone}\n` +
         `  Income: $${data.monthlyIncome}/mo   Occupants: ${data.occupants}\n` +
         `  Eviction history: ${data.hasEviction}\n` +
+        `  Property interest: ${data.interestedProperty || '(not specified)'}\n` +
         `Reply "screen ${data.leadName}" to send a SmartMove screening request.`
       );
       break;
