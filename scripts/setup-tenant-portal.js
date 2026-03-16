@@ -1112,6 +1112,61 @@ async function cancelBlockingPaymentRequests() {
   }
 }
 
+// ── ERPNext Webhook for rental application submissions ────────────────────────
+// Creates (or updates) an ERPNext Webhook that fires after a Lead is inserted
+// and POSTs the applicant data to our /webhooks/erpnext/application-submitted
+// endpoint, which then sends a Telegram notification to the landlord.
+
+async function configureApplicationWebhook() {
+  console.log('\n── Application Submission Webhook ───────────────────────────────────────────');
+
+  const webhookBase = (process.env.WEBHOOK_BASE_URL || '').replace(/\/$/, '');
+  if (!webhookBase || webhookBase === 'https://your-server.example.com') {
+    console.warn('  ⚠  WEBHOOK_BASE_URL not set — skipping ERPNext webhook for application-submitted');
+    return;
+  }
+
+  const requestUrl = `${webhookBase}/webhooks/erpnext/application-submitted`;
+
+  // ERPNext Webhook uses autoname, so we look up by URL rather than by name.
+  const existing = await listDocs(
+    'Webhook',
+    [['request_url', '=', requestUrl]],
+    ['name', 'request_url', 'enabled']
+  );
+
+  const payload = {
+    enabled: 1,
+    webhook_doctype: 'Lead',
+    webhook_docevent: 'after_insert',
+    request_url: requestUrl,
+    request_structure: 'JSON',
+    // Only fire for leads that came in via the rental application web form.
+    condition: "doc.lead_source == 'Online Application'",
+    webhook_headers: [],
+    webhook_data: [
+      { fieldname: 'name',                        key: 'name' },
+      { fieldname: 'first_name',                  key: 'first_name' },
+      { fieldname: 'last_name',                   key: 'last_name' },
+      { fieldname: 'email_id',                    key: 'email_id' },
+      { fieldname: 'mobile_no',                   key: 'mobile_no' },
+      { fieldname: 'custom_monthly_gross_income', key: 'custom_monthly_gross_income' },
+      { fieldname: 'custom_number_of_occupants',  key: 'custom_number_of_occupants' },
+      { fieldname: 'custom_eviction_history',     key: 'custom_eviction_history' },
+      { fieldname: 'custom_interested_property',  key: 'custom_interested_property' },
+    ],
+  };
+
+  if (existing.length > 0) {
+    const wh = existing[0];
+    await http.put(`/api/resource/Webhook/${encodeURIComponent(wh.name)}`, payload);
+    console.log(`  ↺ Updated  Webhook ${wh.name} → ${requestUrl}`);
+  } else {
+    const { data } = await http.post('/api/resource/Webhook', payload);
+    console.log(`  + Created  Webhook ${data.data?.name} → ${requestUrl}`);
+  }
+}
+
 // ── Main ─────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -1201,6 +1256,13 @@ async function main() {
     console.warn('  ⚠  configureApplyWebForm error (non-fatal):', detail);
   }
 
+  try {
+    await configureApplicationWebhook();
+  } catch (e) {
+    const detail = e.response?.data?.exception || e.message;
+    console.warn('  ⚠  configureApplicationWebhook error (non-fatal):', detail);
+  }
+
   const webhookBase = (process.env.WEBHOOK_BASE_URL || '').replace(/\/$/, '');
   const achReady = webhookBase && webhookBase !== 'https://your-server.example.com';
 
@@ -1222,7 +1284,7 @@ async function main() {
 }
 
 // Export helpers for unit testing
-module.exports = { getDoc, upsert, listDocs, ensurePortalUser, PORTAL_MENU_ITEMS, PAYMENT_REQUEST_CUSTOM_PERMS, SALES_INVOICE_CUSTOM_PERMS, ACH_SCRIPT_MARKER, ALL_INV_MARKER, configureMyInvoicesPage, configurePaidInvoicesPage, configureMyLeasePage, configureMyDocsPage, configureApplyWebForm, customFieldExists, ensureLeadApplicationFields };
+module.exports = { getDoc, upsert, listDocs, ensurePortalUser, PORTAL_MENU_ITEMS, PAYMENT_REQUEST_CUSTOM_PERMS, SALES_INVOICE_CUSTOM_PERMS, ACH_SCRIPT_MARKER, ALL_INV_MARKER, configureMyInvoicesPage, configurePaidInvoicesPage, configureMyLeasePage, configureMyDocsPage, configureApplyWebForm, customFieldExists, ensureLeadApplicationFields, configureApplicationWebhook };
 
 // Only run when invoked directly (not when required by tests)
 if (require.main === module) {
