@@ -31,12 +31,19 @@ function validateSignature(req, res, next) {
 
   const sig  = req.headers['x-frappe-webhook-signature'] || '';
   const body = req.rawBody || JSON.stringify(req.body);
-  const expected = crypto.createHmac('sha256', secret).update(body).digest('hex');
 
-  // timingSafeEqual requires same-length buffers; use fixed-length hex form
-  const sigBuf = Buffer.from(sig.padEnd(64, '0').slice(0, 64), 'hex');
-  const expBuf = Buffer.from(expected, 'hex');
-  if (sig.length !== expected.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
+  // Accept two signature formats:
+  //   hex    – used by our own tests and direct API callers
+  //   base64 – used by Frappe Cloud webhooks (base64(hmac_sha256(secret, body)))
+  const hmacHex = crypto.createHmac('sha256', secret).update(body).digest('hex');
+  const hmacB64 = crypto.createHmac('sha256', secret).update(body).digest('base64');
+
+  const matchesHex = sig.length === hmacHex.length &&
+    crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(hmacHex));
+  const matchesB64 = sig.length === hmacB64.length &&
+    crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(hmacB64));
+
+  if (!matchesHex && !matchesB64) {
     return res.status(401).json({ error: 'Invalid webhook signature' });
   }
   next();
