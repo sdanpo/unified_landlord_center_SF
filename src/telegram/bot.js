@@ -220,9 +220,12 @@ async function notifyLandlord(text) {
     ? [...config.telegram.allowedGroupIds]
     : [...config.telegram.allowedUserIds];
 
+  // Do NOT use parse_mode here: notifications embed raw user data (emails,
+  // names, ticket IDs) which may contain Markdown special characters such as
+  // '_' (italics) or '[' (link) that cause Telegram to reject the message.
   const results = await Promise.allSettled(
     recipients.map((id) =>
-      b.sendMessage(id, text, { parse_mode: 'Markdown' })
+      b.sendMessage(id, text)
     )
   );
 
@@ -232,6 +235,8 @@ async function notifyLandlord(text) {
         recipientId: recipients[i],
         error: r.reason?.message,
       });
+    } else {
+      logger.info('Telegram notification delivered', { recipientId: recipients[i] });
     }
   });
 }
