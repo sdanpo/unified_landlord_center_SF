@@ -972,6 +972,8 @@ async function ensureLeadApplicationFields() {
     { fieldname: 'custom_pet_description',          label: 'Pet Description',             fieldtype: 'Small Text', insert_after: 'custom_has_pets' },
     { fieldname: 'custom_consent_background_check', label: 'Consent: Background Check',   fieldtype: 'Check',      insert_after: 'custom_pet_description',          default: '0' },
     { fieldname: 'custom_consent_accuracy',         label: 'Consent: Info Is Accurate',   fieldtype: 'Check',      insert_after: 'custom_consent_background_check', default: '0' },
+    { fieldname: 'custom_interested_property',      label: 'Interested In',               fieldtype: 'Select',
+      options: '',                                                                          insert_after: 'lead_source' },
   ];
 
   for (const f of FIELDS) {
@@ -1002,6 +1004,8 @@ async function configureApplyWebForm() {
   console.log('  Ensuring Lead application fields exist …');
   await ensureLeadApplicationFields();
 
+  const webhookBase = (process.env.WEBHOOK_BASE_URL || '').replace(/\/$/, '');
+
   // Frappe derives the Web Form docname from the title slug: 'Rental Application' → 'rental-application'.
   // We must use 'rental-application' as the lookup key so getDoc() finds the existing record
   // on subsequent runs (avoiding DuplicateEntryError).
@@ -1015,7 +1019,23 @@ async function configureApplyWebForm() {
     allow_multiple: 1,
     button_label: 'Submit Application',
     success_message: 'We received your application and will be in touch within 2 business days.',
+    // Dynamically populate the property interest dropdown on form load.
+    // Fetches sorted property list (vacant first, then by lease end date) from the Node.js server.
+    client_script: `frappe.web_form.after_load = function () {
+  fetch(${JSON.stringify(webhookBase + '/api/properties-for-apply')})
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      var opts = '\\n' + data.map(function (p) { return p.value + ':' + p.label; }).join('\\n');
+      frappe.web_form.set_df_property('custom_interested_property', 'options', opts);
+      frappe.web_form.refresh_field('custom_interested_property');
+    })
+    .catch(function () { /* property list unavailable — field stays blank */ });
+};`,
     web_form_fields: [
+      // Property Interest (shown first so applicant selects unit before filling personal info)
+      { fieldname: 'sb_property',                label: 'Property',              fieldtype: 'Section Break' },
+      { fieldname: 'custom_interested_property', label: 'Which property are you interested in?',
+        fieldtype: 'Select', reqd: 1 },
       // Personal Information
       { fieldname: 'sb_personal',              label: 'Personal Information',  fieldtype: 'Section Break' },
       { fieldname: 'first_name',               label: 'First Name',            fieldtype: 'Data',       reqd: 1 },

@@ -300,14 +300,15 @@ function makeWebhookRouter() {
     handle({
       type: 'application.submitted',
       data: {
-        leadName:      d.name,
-        firstName:     d.first_name  || '',
-        lastName:      d.last_name   || '',
-        email:         d.email_id    || '',
-        phone:         d.mobile_no   || '',
-        monthlyIncome: d.custom_monthly_gross_income || '',
-        occupants:     d.custom_number_of_occupants  || '',
-        hasEviction:   d.custom_eviction_history      || 'No',
+        leadName:           d.name,
+        firstName:          d.first_name  || '',
+        lastName:           d.last_name   || '',
+        email:              d.email_id    || '',
+        phone:              d.mobile_no   || '',
+        monthlyIncome:      d.custom_monthly_gross_income    || '',
+        occupants:          d.custom_number_of_occupants     || '',
+        hasEviction:        d.custom_eviction_history        || 'No',
+        interestedProperty: d.custom_interested_property     || '',
       },
     }).catch(err => logger.error('application.submitted handler error', { error: err.message }));
     res.json({ received: true });
@@ -929,15 +930,81 @@ function makePaymentHistoryRouter() {
 /**
  * createWebhookApp() — used by tests and directly by src/index.js.
  * Mounts:
- *   /webhooks/…   ERPNext webhook endpoints + health
- *   /checkout     Stripe Checkout Session endpoint
+ *   /webhooks/…              ERPNext webhook endpoints + health
+ *   /api/properties-for-apply  Public property list for the /apply Web Form dropdown
+ *   /checkout                Stripe Checkout Session endpoint
  */
+
+// ── GET /api/properties-for-apply ─────────────────────────────────────────────
+// Public endpoint (no auth). Returns properties sorted: vacant first, then by
+// active lease end_date ascending (soonest vacancy first).
+// Called by the ERPNext /apply Web Form client_script to populate the property
+// interest dropdown for prospective tenants.
+function makePublicApiRouter() {
+  const api    = require('../api/index');
+  const router = express.Router();
+
+  router.get('/api/properties-for-apply', async (req, res) => {
+    try {
+      const [properties, leases] = await Promise.all([
+        api.getProperties(),
+        api.getLeases({ status: 'active' }),
+      ]);
+
+      // Build map: property.name → earliest active lease end_date
+      const leaseEndByProperty = {};
+      for (const l of leases) {
+        if (l.property && l.end_date) {
+          const existing = leaseEndByProperty[l.property];
+          if (!existing || l.end_date < existing) leaseEndByProperty[l.property] = l.end_date;
+        }
+      }
+
+      const vacant = [], occupied = [];
+      for (const p of properties) {
+        const endDate = leaseEndByProperty[p.name];
+        if (p.status === 'Available' || !endDate) vacant.push(p);
+        else occupied.push({ ...p, _endDate: endDate });
+      }
+
+      vacant.sort((a, b) => (a.name1 || a.name).localeCompare(b.name1 || b.name));
+      occupied.sort((a, b) => (a._endDate < b._endDate ? -1 : a._endDate > b._endDate ? 1 : 0));
+
+      const fmtDate = d =>
+        new Date(d + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      const suffix = p =>
+        (p.rent    ? ` ($${Number(p.rent).toLocaleString()}/mo)` : '') +
+        (p.bedroom ? `, ${p.bedroom}br` : '');
+
+      const result = [
+        ...vacant.map(p => ({
+          value: p.name1 || p.name,
+          label: `${p.name1 || p.name} — Available Now${suffix(p)}`,
+        })),
+        ...occupied.map(p => ({
+          value: p.name1 || p.name,
+          label: `${p.name1 || p.name} — Available after ${fmtDate(p._endDate)}${suffix(p)}`,
+        })),
+      ];
+
+      res.set('Access-Control-Allow-Origin', '*');
+      res.json(result);
+    } catch (err) {
+      logger.error('properties-for-apply error', { error: err.message });
+      res.status(500).json({ error: 'Could not load properties' });
+    }
+  });
+
+  return router;
+}
+
 function createWebhookApp() {
   const app = express();
   app.use(express.json({ verify: captureRawBody }));
   app.use(express.urlencoded({ extended: true, verify: captureRawBody }));
   app.use('/webhooks', makeWebhookRouter());
   app.use('/webhooks', makeStripeWebhookRouter());
+  app.use('/', makePublicApiRouter());
   app.use('/', makeCheckoutRouter());
   app.use('/', makePaymentHistoryRouter());
   return app;

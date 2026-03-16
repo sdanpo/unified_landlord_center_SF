@@ -156,6 +156,7 @@ describe('handle({ type: "application.submitted" })', () => {
     monthlyIncome: 8000,
     occupants: 2,
     hasEviction: 'No',
+    interestedProperty: '101 Market St #4A',
   };
 
   test('sends applicant name, email, income, and occupant count', async () => {
@@ -179,6 +180,19 @@ describe('handle({ type: "application.submitted" })', () => {
     await handle({ type: 'application.submitted', data: app });
     const msg = mockNotify.mock.calls[0][0];
     expect(msg).toContain('No'); // hasEviction
+  });
+
+  test('includes interested property in notification', async () => {
+    await handle({ type: 'application.submitted', data: app });
+    const msg = mockNotify.mock.calls[0][0];
+    expect(msg).toContain('101 Market St #4A');
+  });
+
+  test('shows "(not specified)" when interestedProperty is absent', async () => {
+    const appNoProperty = { ...app, interestedProperty: '' };
+    await handle({ type: 'application.submitted', data: appNoProperty });
+    const msg = mockNotify.mock.calls[0][0];
+    expect(msg).toContain('(not specified)');
   });
 });
 
