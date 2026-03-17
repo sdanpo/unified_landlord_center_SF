@@ -458,6 +458,7 @@ describe('Checkout endpoint – surcharge & method routing', () => {
       const mockAxios = jest.fn();
       mockAxios.create = jest.fn(() => {
         const inst = {
+          interceptors: { response: { use: jest.fn() } },
           get:  jest.fn((path) => {
             if (path.includes('Sales%20Invoice'))
               return Promise.resolve({ data: { data: {

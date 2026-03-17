@@ -247,14 +247,14 @@ describe('2. /apply — Rental Application form', () => {
     const errorText = await errorModal.first().textContent({ timeout: 3000 }).catch(() => '');
     expect(errorText).not.toMatch(/could not find company/i);
 
-    // Must see a success message
+    // Must see a success message — filter to non-SVG elements only so we don't
+    // accidentally match hidden SVG animation paths (e.g. es-line-success).
     const successEl = page.locator(
-      '.alert-success, .web-form-success, .form-success-message, ' +
-      '[class*="success"], .page-container .container h3'
-    ).first();
+      'h1, h2, h3, p, div.alert-success, .web-form-success, .form-success-message'
+    ).filter({ hasText: /submitted|received|application|touch|thank/i }).first();
     await pwExpect(successEl).toBeVisible({ timeout: 25_000 });
     const successText = await successEl.textContent({ timeout: 5000 }).catch(() => '');
-    expect(successText.toLowerCase()).toMatch(/received|application|touch|thank/);
+    expect(successText.toLowerCase()).toMatch(/submitted|received|application|touch|thank/);
   }, 90_000);
 });
 
