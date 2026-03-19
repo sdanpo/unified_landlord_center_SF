@@ -1256,6 +1256,7 @@ describe('BoldSign – AI tool flow (send_lease_for_signature)', () => {
     jest.mock('../src/api/index', () => ({
       getTenants:   jest.fn().mockResolvedValue([mockTenant]),
       getLeases:    jest.fn().mockResolvedValue([mockLease]),
+      getLease:     jest.fn().mockResolvedValue(mockLease),
       getProperty:  jest.fn().mockResolvedValue(mockProperty),
     }));
 
@@ -1397,6 +1398,7 @@ describe('BoldSign – AI tool flow (send_lease_for_signature)', () => {
     jest.mock('../src/api/index', () => ({
       getTenants:  jest.fn().mockResolvedValue([mockTenant]),
       getLeases:   jest.fn().mockResolvedValue([mockLease]),
+      getLease:    jest.fn().mockResolvedValue(mockLease),
       getProperty: jest.fn().mockResolvedValue(mockProperty),
     }));
 
