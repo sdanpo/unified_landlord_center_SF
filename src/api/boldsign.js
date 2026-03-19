@@ -215,6 +215,23 @@ async function sendDocumentForSignature({
   const [tenantRole, landlordRole] = TEMPLATE_ROLES[key] || ['Tenant', 'Landlord'];
   const prefillForms = buildPrefillForms(key, variables);
 
+  logger.info('BoldSign: prefill fields being sent', {
+    templateKey: key,
+    templateId,
+    fieldCount: prefillForms.length,
+    fields: prefillForms,
+    variablesSnapshot: {
+      landlord_name: variables.landlord_name,
+      tenant_name: variables.tenant_name,
+      unit_address: variables.unit_address,
+      unit_state: variables.unit_state,
+      monthly_rent: variables.monthly_rent,
+      security_deposit: variables.security_deposit,
+      start_date: variables.start_date,
+      end_date: variables.end_date,
+    },
+  });
+
   const payload = {
     title:   isRenewal
       ? 'Lease Renewal Agreement — Signature Required'
