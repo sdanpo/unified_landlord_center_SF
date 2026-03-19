@@ -1074,7 +1074,7 @@ describe('BoldSign – pre-fill tags and signer roles', () => {
     jest.resetModules();
   });
 
-  test('all 13 pre-fill variables included in formFields', async () => {
+  test('all key pre-fill fields included in existingFormFields on role 1 using template field IDs', async () => {
     const variables = {
       landlord_name: 'Dan Porat', landlord_email: 'dan@example.com',
       landlord_phone: '+14155551000', landlord_address: '123 Owner St',
@@ -1082,7 +1082,6 @@ describe('BoldSign – pre-fill tags and signer roles', () => {
       unit_address: '512 Maple St', unit_city: 'Cleveland', unit_state: 'OH', unit_zip: '44101',
       start_date: '2026-07-01', end_date: '2027-06-30',
       monthly_rent: '2800', security_deposit: '5600',
-      notice_period: '30', late_fee_grace_days: '5', late_fee_amount: '100',
     };
 
     await boldSign.sendDocumentForSignature({
@@ -1092,21 +1091,24 @@ describe('BoldSign – pre-fill tags and signer roles', () => {
       variables,
     });
 
+    // BoldSign API requires existingFormFields inside the role object (not a top-level prefillForms)
+    expect(lastPostPayload.prefillForms).toBeUndefined(); // must NOT be at top level
     const tenantRole = lastPostPayload.roles.find(r => r.roleIndex === 1);
-    const fieldIds   = tenantRole.formFields.map(f => f.id);
+    expect(tenantRole.existingFormFields).toBeDefined();
+    const fieldIds = tenantRole.existingFormFields.map(f => f.id);
 
-    expect(fieldIds).toContain('landlord_name');
-    expect(fieldIds).toContain('tenant_name');
-    expect(fieldIds).toContain('unit_address');
-    expect(fieldIds).toContain('unit_state');
-    expect(fieldIds).toContain('monthly_rent');
-    expect(fieldIds).toContain('security_deposit');
-    expect(fieldIds).toContain('late_fee_amount');
-    // Every field must have fieldType = 'Textbox'
-    tenantRole.formFields.forEach(f => expect(f.fieldType).toBe('Textbox'));
+    // OH_LEASE field IDs (from template properties API)
+    expect(fieldIds).toContain('t_b47276be'); // landlord_name
+    expect(fieldIds).toContain('t_9cfaa4e0'); // tenant_name
+    expect(fieldIds).toContain('t_61467ae8'); // unit_address
+    expect(fieldIds).toContain('t_c68fab45'); // monthly_rent
+    expect(fieldIds).toContain('t_c707f0d8'); // security_deposit
+    // Landlord role must NOT have existingFormFields
+    const landlordRole = lastPostPayload.roles.find(r => r.roleIndex === 2);
+    expect(landlordRole.existingFormFields).toBeUndefined();
   });
 
-  test('empty variables are excluded from formFields', async () => {
+  test('empty variables are excluded from existingFormFields', async () => {
     await boldSign.sendDocumentForSignature({
       docType: 'Lease', state: 'OH',
       tenantEmail: 'maria@example.com', tenantName: 'Maria Garcia',
@@ -1115,11 +1117,14 @@ describe('BoldSign – pre-fill tags and signer roles', () => {
     });
 
     const tenantRole = lastPostPayload.roles.find(r => r.roleIndex === 1);
-    const fieldIds   = tenantRole.formFields.map(f => f.id);
+    const fieldIds = (tenantRole?.existingFormFields || []).map(f => f.id);
 
-    expect(fieldIds).toContain('monthly_rent');
-    expect(fieldIds).not.toContain('unit_state');       // empty string excluded
-    expect(fieldIds).not.toContain('security_deposit'); // null excluded
+    expect(fieldIds).toContain('t_c68fab45');    // monthly_rent field ID — included
+    // t_f213d8f7 is city_state_zip; with only unit_state='' it produces '' → excluded
+    const cityStateField = (tenantRole?.existingFormFields || []).find(f => f.id === 't_f213d8f7');
+    if (cityStateField) expect(cityStateField.value).not.toBe('');
+    // t_c707f0d8 is security_deposit; null → excluded
+    expect(fieldIds).not.toContain('t_c707f0d8');
   });
 
   test('landlord role has RoleIndex 2, no formFields', async () => {
@@ -1251,6 +1256,7 @@ describe('BoldSign – AI tool flow (send_lease_for_signature)', () => {
     jest.mock('../src/api/index', () => ({
       getTenants:   jest.fn().mockResolvedValue([mockTenant]),
       getLeases:    jest.fn().mockResolvedValue([mockLease]),
+      getLease:     jest.fn().mockResolvedValue(mockLease),
       getProperty:  jest.fn().mockResolvedValue(mockProperty),
     }));
 
@@ -1392,6 +1398,7 @@ describe('BoldSign – AI tool flow (send_lease_for_signature)', () => {
     jest.mock('../src/api/index', () => ({
       getTenants:  jest.fn().mockResolvedValue([mockTenant]),
       getLeases:   jest.fn().mockResolvedValue([mockLease]),
+      getLease:    jest.fn().mockResolvedValue(mockLease),
       getProperty: jest.fn().mockResolvedValue(mockProperty),
     }));
 

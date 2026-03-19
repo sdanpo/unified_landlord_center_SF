@@ -39,6 +39,25 @@ const openai = new OpenAI({
   httpAgent: buildOpenAIAgent(),
 });
 
+/**
+ * Parse street / city / state / zip from an ERPNext property name.
+ * Property names are stored as full addresses, e.g.:
+ *   "229 Watson Drive, Burlington, NC 27217"
+ *   "512 Maple Street, Unit 1A – SF"  ← no parseable state/zip
+ *
+ * Returns { street, city, state, zip } with empty strings for unparseable parts.
+ */
+function parseAddressFromPropertyName(name) {
+  if (!name) return { street: '', city: '', state: '', zip: '' };
+  // Match: anything, then ", City, ST 12345" at the end
+  const m = name.match(/^(.+),\s*([^,]+),\s*([A-Z]{2})\s+(\d{5}(?:-\d{4})?)$/);
+  if (m) {
+    return { street: m[1].trim(), city: m[2].trim(), state: m[3], zip: m[4] };
+  }
+  // No match — use full name as street only
+  return { street: name, city: '', state: '', zip: '' };
+}
+
 const SYSTEM_PROMPT = `You are an intelligent property management assistant for a residential real estate landlord.
 You have real-time access to the property management database and can answer questions about:
 - Outstanding rent balances and delinquencies
@@ -150,8 +169,12 @@ async function executeTool(toolCall) {
       if (!tenant.email_id) throw new Error(`Tenant "${tenant.customer_name || tenant.name}" has no email address on file — add one in ERPNext before sending for signature`);
 
       const leases = await pmsClient.getLeases({ status: 'active' });
-      const lease  = leases.find(l => l.lease_customer === tenant.name);
-      if (!lease) throw new Error(`No active lease found for tenant "${tenant.name}"`);
+      const leaseSummary = leases.find(l => l.lease_customer === tenant.name);
+      if (!leaseSummary) throw new Error(`No active lease found for tenant "${tenant.name}"`);
+
+      // Fetch the full lease document so we get lease_item child table
+      // (list API returns only parent fields; monthly_rent lives in lease_item[0].amount)
+      const lease = await pmsClient.getLease(leaseSummary.name);
 
       // Fetch the property to get structured address fields and state for template routing
       let property = null;
@@ -161,8 +184,26 @@ async function executeTool(toolCall) {
         // Non-fatal: fall back to partial data
       }
 
+      // Parse address components from property name when custom fields are absent.
+      // ERPNext property names follow the pattern "Street, City, ST 12345"
+      // e.g. "229 Watson Drive, Burlington, NC 27217"
+      const parsedAddr = parseAddressFromPropertyName(property?.name1 || lease.property || '');
+
       const docType = args.doc_type || 'Lease';
-      const state   = property?.custom_state || '';
+      const state   = property?.custom_state || parsedAddr.state || '';
+
+      // monthly_rent lives in lease_item[0].amount (child table), not on the parent doc
+      const monthlyRent = lease.monthly_rent ||
+        (lease.lease_item && lease.lease_item[0] && lease.lease_item[0].amount) || '';
+
+      logger.info('BoldSign: building lease variables', {
+        tenant: tenant.name,
+        property: lease.property,
+        state,
+        parsedAddr,
+        monthlyRent,
+        security_deposit: lease.security_deposit,
+      });
 
       const variables = {
         // Landlord identity (from env vars set once per deployment)
@@ -174,19 +215,19 @@ async function executeTool(toolCall) {
         tenant_name:  tenant.customer_name || tenant.name,
         tenant_email: tenant.email_id      || '',
         tenant_phone: tenant.mobile_no     || '',
-        // Property / unit
-        unit_address: property?.custom_street_address || property?.name1 || lease.property || '',
-        unit_city:    property?.custom_city           || '',
+        // Property / unit — fall back to parsed address when custom fields absent
+        unit_address: property?.custom_street_address || parsedAddr.street || lease.property || '',
+        unit_city:    property?.custom_city           || parsedAddr.city   || '',
         unit_state:   state,
-        unit_zip:     property?.custom_zip_code       || '',
+        unit_zip:     property?.custom_zip_code       || parsedAddr.zip    || '',
         // Lease terms
-        start_date:          lease.start_date                     || '',
-        end_date:            lease.end_date                       || '',
-        monthly_rent:        lease.monthly_rent                   || '',
-        security_deposit:    lease.security_deposit               || '',
-        notice_period:       lease.notice_period                  || '',
-        late_fee_grace_days: lease.custom_late_fee_grace_days     || '',
-        late_fee_amount:     lease.custom_late_fee_flat_amount    || '',
+        start_date:          lease.start_date                  || '',
+        end_date:            lease.end_date                    || '',
+        monthly_rent:        monthlyRent,
+        security_deposit:    lease.security_deposit            || '',
+        notice_period:       lease.notice_period               || '',
+        late_fee_grace_days: lease.custom_late_fee_grace_days  || '',
+        late_fee_amount:     lease.custom_late_fee_flat_amount || '',
       };
 
       const signRequest = await boldSign.sendDocumentForSignature({
