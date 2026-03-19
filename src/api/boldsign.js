@@ -149,13 +149,11 @@ async function sendDocumentForSignature({
         roleIndex:   1,
         signerName:  tenantName,
         signerEmail: tenantEmail,
-        signerType:  'Signer',
       },
       {
         roleIndex:   2,
         signerName:  landlordName,
         signerEmail: landlordEmail,
-        signerType:  'Signer',
       },
     ],
     ...(preFillTags.length ? { prefillForms: preFillTags } : {}),
@@ -166,10 +164,21 @@ async function sendDocumentForSignature({
     },
   };
 
-  const { data } = await http.post(
-    `/template/send?templateId=${encodeURIComponent(templateId)}`,
-    payload
-  );
+  let data;
+  try {
+    ({ data } = await http.post(
+      `/template/send?templateId=${encodeURIComponent(templateId)}`,
+      payload
+    ));
+  } catch (err) {
+    const detail = err.response?.data;
+    logger.error('BoldSign API error', {
+      status:   err.response?.status,
+      response: typeof detail === 'object' ? detail : String(detail).slice(0, 500),
+      payload:  JSON.stringify(payload).slice(0, 1000),
+    });
+    throw err;
+  }
 
   const documentId = data.documentId || data.DocumentId || '';
 
