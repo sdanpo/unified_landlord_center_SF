@@ -147,13 +147,17 @@ async function sendDocumentForSignature({
     roles: [
       {
         roleIndex:   1,
+        signerRole:  'Tenant',
         signerName:  tenantName,
         signerEmail: tenantEmail,
+        signerType:  'Signer',
       },
       {
         roleIndex:   2,
+        signerRole:  'Landlord',
         signerName:  landlordName,
         signerEmail: landlordEmail,
+        signerType:  'Signer',
       },
     ],
     ...(preFillTags.length ? { prefillForms: preFillTags } : {}),
