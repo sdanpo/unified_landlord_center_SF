@@ -217,16 +217,22 @@ const tools = [
     function: {
       name: 'send_lease_for_signature',
       description:
-        'Send the lease agreement to a tenant for e-signature via BoldSign.  ' +
-        'Pre-fills the lease PDF template with the tenant\'s current lease data ' +
-        '(unit, dates, rent, deposit) and requests signatures from both the tenant ' +
-        'and the landlord.  Use when the landlord says "send lease to [tenant name]".',
+        'Send a lease or renewal agreement to a tenant for e-signature via BoldSign. ' +
+        'Pre-fills the PDF template with all lease data (parties, address, dates, rent, deposit) ' +
+        'and requests signatures from both the tenant and the landlord. ' +
+        'The correct state template (OH/NC) is chosen automatically from the property record. ' +
+        'Use when the landlord says "send lease to [name]" or "send renewal to [name]".',
       parameters: {
         type: 'object',
         properties: {
           tenantName: {
             type: 'string',
             description: 'Full or partial ERPNext Customer name of the tenant.',
+          },
+          doc_type: {
+            type: 'string',
+            enum: ['Lease', 'Renewal'],
+            description: 'Document type to send. "Lease" for a new lease agreement, "Renewal" for a renewal. Defaults to "Lease".',
           },
         },
         required: ['tenantName'],

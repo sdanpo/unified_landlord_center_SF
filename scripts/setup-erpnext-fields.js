@@ -93,10 +93,22 @@ const CUSTOM_FIELDS = [
     options: '5 - Excellent\n4 - Good\n3 - Average\n2 - Below Average\n1 - Poor' },
   { dt: 'Supplier', fieldname: 'custom_sms_number',     label: 'SMS / Mobile #',    fieldtype: 'Data',   insert_after: 'custom_rating' },
 
+  // ── Property (address + state for template routing) ───────────────────────
+  { dt: 'Property', fieldname: 'custom_state',          label: 'State',          fieldtype: 'Select',
+    options: 'OH\nNC', insert_after: 'name1' },
+  { dt: 'Property', fieldname: 'custom_street_address', label: 'Street Address', fieldtype: 'Data',
+    insert_after: 'custom_state' },
+  { dt: 'Property', fieldname: 'custom_city',           label: 'City',           fieldtype: 'Data',
+    insert_after: 'custom_street_address' },
+  { dt: 'Property', fieldname: 'custom_zip_code',       label: 'ZIP Code',       fieldtype: 'Data',
+    insert_after: 'custom_city' },
+
   // ── Lease (renewal tracking) ───────────────────────────────────────────────
   { dt: 'Lease', fieldname: 'custom_renewal_notice_sent', label: 'Renewal Notice Sent', fieldtype: 'Date',   insert_after: 'end_date' },
   { dt: 'Lease', fieldname: 'custom_renewal_action',      label: 'Renewal Action',      fieldtype: 'Select', insert_after: 'custom_renewal_notice_sent',
     options: '\nRenew\nVacating\nRent Increase' },
+  { dt: 'Lease', fieldname: 'custom_document_type',       label: 'Document Type',       fieldtype: 'Select', insert_after: 'custom_renewal_action',
+    options: 'Lease\nRenewal', default: 'Lease' },
 
   // ── Lease (late fee configuration) ────────────────────────────────────────
   { dt: 'Lease', fieldname: 'custom_late_fee_grace_days',  label: 'Late Fee Grace Period (days)', fieldtype: 'Int',      insert_after: 'late_payment_interest_percentage', default: '5' },

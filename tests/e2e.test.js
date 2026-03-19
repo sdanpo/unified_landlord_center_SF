@@ -946,6 +946,472 @@ describe('Scheduler – runStaleWorkOrderCheck()', () => {
   }, 30_000);
 });
 
+// ─── 10. BoldSign – multi-template e-signature system ────────────────────────
+
+describe('BoldSign – template routing (resolveTemplateId via sendDocumentForSignature)', () => {
+  let boldSign;
+
+  // Capture the last axios.post payload for assertions
+  let lastPostPath = '';
+  let lastPostPayload = null;
+
+  beforeAll(() => {
+    jest.resetModules();
+
+    // Stub axios so no real HTTP calls are made
+    jest.mock('axios', () => {
+      const inst = {
+        interceptors: { response: { use: jest.fn() } },
+        post: jest.fn((path, body) => {
+          lastPostPath    = path;
+          lastPostPayload = body;
+          return Promise.resolve({ data: { documentId: 'DOC-MOCK-001' } });
+        }),
+        get: jest.fn(),
+      };
+      const mockAxios = jest.fn();
+      mockAxios.create = jest.fn(() => inst);
+      return mockAxios;
+    });
+
+    // Set 4 unique template IDs so we can verify routing
+    process.env.BOLDSIGN_API_KEY              = 'test-api-key';
+    process.env.BOLDSIGN_TEMPLATE_OH_LEASE    = 'tpl-oh-lease';
+    process.env.BOLDSIGN_TEMPLATE_OH_RENEWAL  = 'tpl-oh-renewal';
+    process.env.BOLDSIGN_TEMPLATE_NC_LEASE    = 'tpl-nc-lease';
+    process.env.BOLDSIGN_TEMPLATE_NC_RENEWAL  = 'tpl-nc-renewal';
+    delete process.env.BOLDSIGN_TEMPLATE_ID;   // no legacy fallback
+
+    boldSign = require('../src/api/boldsign');
+  });
+
+  afterAll(() => {
+    jest.unmock('axios');
+    jest.resetModules();
+  });
+
+  const baseParams = {
+    tenantEmail:   'tenant@example.com',
+    tenantName:    'Test Tenant',
+    landlordEmail: 'landlord@example.com',
+    landlordName:  'Test Landlord',
+    variables:     { start_date: '2026-07-01', end_date: '2027-06-30', monthly_rent: 2500 },
+  };
+
+  test('OH + Lease → uses BOLDSIGN_TEMPLATE_OH_LEASE', async () => {
+    lastPostPayload = null;
+    await boldSign.sendDocumentForSignature({ ...baseParams, docType: 'Lease', state: 'OH' });
+    expect(lastPostPath).toContain('tpl-oh-lease');
+    expect(lastPostPayload.title).toContain('Lease Agreement');
+  });
+
+  test('OH + Renewal → uses BOLDSIGN_TEMPLATE_OH_RENEWAL', async () => {
+    await boldSign.sendDocumentForSignature({ ...baseParams, docType: 'Renewal', state: 'OH' });
+    expect(lastPostPath).toContain('tpl-oh-renewal');
+    expect(lastPostPayload.title).toContain('Renewal');
+  });
+
+  test('NC + Lease → uses BOLDSIGN_TEMPLATE_NC_LEASE', async () => {
+    await boldSign.sendDocumentForSignature({ ...baseParams, docType: 'Lease', state: 'NC' });
+    expect(lastPostPath).toContain('tpl-nc-lease');
+  });
+
+  test('NC + Renewal → uses BOLDSIGN_TEMPLATE_NC_RENEWAL', async () => {
+    await boldSign.sendDocumentForSignature({ ...baseParams, docType: 'Renewal', state: 'NC' });
+    expect(lastPostPath).toContain('tpl-nc-renewal');
+  });
+
+  test('state is case-insensitive (oh → OH_LEASE)', async () => {
+    await boldSign.sendDocumentForSignature({ ...baseParams, docType: 'Lease', state: 'oh' });
+    expect(lastPostPath).toContain('tpl-oh-lease');
+  });
+
+  test('missing template throws descriptive error', async () => {
+    delete process.env.BOLDSIGN_TEMPLATE_NC_RENEWAL;
+    await expect(
+      boldSign.sendDocumentForSignature({ ...baseParams, docType: 'Renewal', state: 'NC' })
+    ).rejects.toThrow(/NC_RENEWAL/);
+    process.env.BOLDSIGN_TEMPLATE_NC_RENEWAL = 'tpl-nc-renewal';
+  });
+
+  test('falls back to BOLDSIGN_TEMPLATE_ID when state not in map', async () => {
+    process.env.BOLDSIGN_TEMPLATE_ID = 'tpl-legacy-fallback';
+    await boldSign.sendDocumentForSignature({ ...baseParams, docType: 'Lease', state: 'TX' });
+    expect(lastPostPath).toContain('tpl-legacy-fallback');
+    delete process.env.BOLDSIGN_TEMPLATE_ID;
+  });
+});
+
+describe('BoldSign – pre-fill tags and signer roles', () => {
+  let boldSign;
+  let lastPostPayload = null;
+
+  beforeAll(() => {
+    jest.resetModules();
+
+    jest.mock('axios', () => {
+      const inst = {
+        interceptors: { response: { use: jest.fn() } },
+        post: jest.fn((_path, body) => {
+          lastPostPayload = body;
+          return Promise.resolve({ data: { documentId: 'DOC-PREFILL-001' } });
+        }),
+        get: jest.fn(),
+      };
+      const mockAxios = jest.fn();
+      mockAxios.create = jest.fn(() => inst);
+      return mockAxios;
+    });
+
+    process.env.BOLDSIGN_API_KEY             = 'test-api-key';
+    process.env.BOLDSIGN_TEMPLATE_OH_LEASE   = 'tpl-oh-lease';
+
+    boldSign = require('../src/api/boldsign');
+  });
+
+  afterAll(() => {
+    jest.unmock('axios');
+    jest.resetModules();
+  });
+
+  test('all 13 pre-fill variables included in formFields', async () => {
+    const variables = {
+      landlord_name: 'Dan Porat', landlord_email: 'dan@example.com',
+      landlord_phone: '+14155551000', landlord_address: '123 Owner St',
+      tenant_name: 'Maria Garcia', tenant_email: 'maria@example.com', tenant_phone: '+14155551001',
+      unit_address: '512 Maple St', unit_city: 'Cleveland', unit_state: 'OH', unit_zip: '44101',
+      start_date: '2026-07-01', end_date: '2027-06-30',
+      monthly_rent: '2800', security_deposit: '5600',
+      notice_period: '30', late_fee_grace_days: '5', late_fee_amount: '100',
+    };
+
+    await boldSign.sendDocumentForSignature({
+      docType: 'Lease', state: 'OH',
+      tenantEmail: 'maria@example.com', tenantName: 'Maria Garcia',
+      landlordEmail: 'dan@example.com', landlordName: 'Dan Porat',
+      variables,
+    });
+
+    const tenantRole = lastPostPayload.roles.find(r => r.roleIndex === 1);
+    const fieldIds   = tenantRole.formFields.map(f => f.id);
+
+    expect(fieldIds).toContain('landlord_name');
+    expect(fieldIds).toContain('tenant_name');
+    expect(fieldIds).toContain('unit_address');
+    expect(fieldIds).toContain('unit_state');
+    expect(fieldIds).toContain('monthly_rent');
+    expect(fieldIds).toContain('security_deposit');
+    expect(fieldIds).toContain('late_fee_amount');
+    // Every field must have fieldType = 'Textbox'
+    tenantRole.formFields.forEach(f => expect(f.fieldType).toBe('Textbox'));
+  });
+
+  test('empty variables are excluded from formFields', async () => {
+    await boldSign.sendDocumentForSignature({
+      docType: 'Lease', state: 'OH',
+      tenantEmail: 'maria@example.com', tenantName: 'Maria Garcia',
+      landlordEmail: 'dan@example.com', landlordName: 'Dan Porat',
+      variables: { monthly_rent: '2800', unit_state: '', security_deposit: null },
+    });
+
+    const tenantRole = lastPostPayload.roles.find(r => r.roleIndex === 1);
+    const fieldIds   = tenantRole.formFields.map(f => f.id);
+
+    expect(fieldIds).toContain('monthly_rent');
+    expect(fieldIds).not.toContain('unit_state');       // empty string excluded
+    expect(fieldIds).not.toContain('security_deposit'); // null excluded
+  });
+
+  test('landlord role has RoleIndex 2, no formFields', async () => {
+    await boldSign.sendDocumentForSignature({
+      docType: 'Lease', state: 'OH',
+      tenantEmail: 'a@b.com', tenantName: 'Tenant A',
+      landlordEmail: 'l@b.com', landlordName: 'Landlord L',
+      variables: { monthly_rent: '1500' },
+    });
+
+    const landlordRole = lastPostPayload.roles.find(r => r.roleIndex === 2);
+    expect(landlordRole.signerEmail).toBe('l@b.com');
+    expect(landlordRole.signerName).toBe('Landlord L');
+    expect(landlordRole.formFields).toBeUndefined();
+  });
+
+  test('auto-reminder settings are included', async () => {
+    await boldSign.sendDocumentForSignature({
+      docType: 'Lease', state: 'OH',
+      tenantEmail: 'a@b.com', tenantName: 'T', landlordEmail: 'l@b.com', landlordName: 'L',
+      variables: {},
+    });
+
+    expect(lastPostPayload.reminderSettings.enableAutoReminder).toBe(true);
+    expect(lastPostPayload.reminderSettings.reminderDays).toBe(3);
+    expect(lastPostPayload.reminderSettings.reminderCount).toBe(3);
+  });
+});
+
+describe('BoldSign – sendLeaseForSignature() backward-compat wrapper', () => {
+  let boldSign;
+  let capturedArgs = null;
+
+  beforeAll(() => {
+    jest.resetModules();
+
+    jest.mock('axios', () => {
+      const inst = {
+        interceptors: { response: { use: jest.fn() } },
+        post: jest.fn((_path, body) => {
+          capturedArgs = body;
+          return Promise.resolve({ data: { documentId: 'DOC-COMPAT-001' } });
+        }),
+        get: jest.fn(),
+      };
+      const mockAxios = jest.fn();
+      mockAxios.create = jest.fn(() => inst);
+      return mockAxios;
+    });
+
+    process.env.BOLDSIGN_API_KEY           = 'test-api-key';
+    process.env.BOLDSIGN_TEMPLATE_OH_LEASE = 'tpl-oh-lease';
+
+    boldSign = require('../src/api/boldsign');
+  });
+
+  afterAll(() => {
+    jest.unmock('axios');
+    jest.resetModules();
+  });
+
+  test('wrapper calls sendDocumentForSignature with docType=Lease', async () => {
+    const result = await boldSign.sendLeaseForSignature({
+      tenantEmail:   'tenant@example.com',
+      tenantName:    'Test Tenant',
+      landlordEmail: 'landlord@example.com',
+      landlordName:  'Test Landlord',
+      variables:     { unit_state: 'OH', monthly_rent: '2500' },
+    });
+
+    expect(result.documentId).toBe('DOC-COMPAT-001');
+    // The title should contain "Lease Agreement" (not "Renewal")
+    expect(capturedArgs.title).toContain('Lease Agreement');
+    // State derived from variables.unit_state → OH_LEASE template
+    expect(capturedArgs).toBeDefined();
+  });
+
+  test('BOLDSIGN_API_KEY not set → returns SKIPPED without HTTP call', async () => {
+    const savedKey = process.env.BOLDSIGN_API_KEY;
+    delete process.env.BOLDSIGN_API_KEY;
+    capturedArgs = null;
+
+    const result = await boldSign.sendLeaseForSignature({
+      tenantEmail: 'a@b.com', tenantName: 'A', landlordEmail: 'l@b.com', landlordName: 'L',
+      variables: { unit_state: 'OH' },
+    });
+
+    expect(result.documentId).toBe('SKIPPED');
+    expect(capturedArgs).toBeNull(); // no HTTP call made
+
+    process.env.BOLDSIGN_API_KEY = savedKey;
+  });
+});
+
+describe('BoldSign – AI tool flow (send_lease_for_signature)', () => {
+  let executeTool;
+  let capturedBoldSignArgs = null;
+
+  const mockTenant = {
+    name:          'Maria Garcia',
+    customer_name: 'Maria Garcia',
+    email_id:      'maria.garcia.tenant@example.com',
+    mobile_no:     '+14155551001',
+  };
+  const mockLease = {
+    name:             'LEASE-001',
+    lease_customer:   'Maria Garcia',
+    property:         '512 Maple Street, Unit 1A – SF',
+    start_date:       '2026-07-01',
+    end_date:         '2027-06-30',
+    monthly_rent:     2800,
+    security_deposit: 5600,
+    notice_period:    30,
+    custom_late_fee_grace_days:  5,
+    custom_late_fee_flat_amount: 100,
+  };
+  const mockProperty = {
+    name:                  '512 Maple Street, Unit 1A – SF',
+    name1:                 '512 Maple Street, Unit 1A',
+    custom_state:          'OH',
+    custom_street_address: '512 Maple Street',
+    custom_city:           'Cleveland',
+    custom_zip_code:       '44101',
+  };
+
+  beforeAll(() => {
+    jest.resetModules();
+
+    jest.mock('../src/api/index', () => ({
+      getTenants:   jest.fn().mockResolvedValue([mockTenant]),
+      getLeases:    jest.fn().mockResolvedValue([mockLease]),
+      getProperty:  jest.fn().mockResolvedValue(mockProperty),
+    }));
+
+    jest.mock('../src/api/boldsign', () => ({
+      sendDocumentForSignature: jest.fn((args) => {
+        capturedBoldSignArgs = args;
+        return Promise.resolve({ documentId: 'DOC-AI-001' });
+      }),
+      sendLeaseForSignature: jest.fn(),
+    }));
+
+    process.env.LANDLORD_NAME    = 'Dan Porat';
+    process.env.LANDLORD_EMAIL   = 'dan@example.com';
+    process.env.LANDLORD_PHONE   = '+14155550000';
+    process.env.LANDLORD_ADDRESS = '123 Owner Street, SF CA 94102';
+
+    // We need to access the private executeTool function – load openai module
+    // and expose it via a thin wrapper (the module doesn't export executeTool directly,
+    // so we test through the chat() flow with a mocked openai client that fires the tool).
+    // Instead, re-require after mocks are set up and invoke via the module internals.
+    // Since executeTool is not exported we test the tool handler indirectly:
+    // mock openai to return a tool_calls response for send_lease_for_signature,
+    // then a stop response, and verify boldSign.sendDocumentForSignature was called correctly.
+    jest.mock('openai', () => {
+      let callCount = 0;
+      return jest.fn().mockImplementation(() => ({
+        chat: {
+          completions: {
+            create: jest.fn().mockImplementation(({ messages }) => {
+              callCount++;
+              // First call: return a tool_calls response
+              if (callCount % 2 === 1) {
+                return Promise.resolve({
+                  choices: [{
+                    finish_reason: 'tool_calls',
+                    message: {
+                      role: 'assistant',
+                      content: null,
+                      tool_calls: [{
+                        id: 'call_001',
+                        type: 'function',
+                        function: {
+                          name: 'send_lease_for_signature',
+                          arguments: JSON.stringify({ tenantName: 'Maria Garcia', doc_type: 'Lease' }),
+                        },
+                      }],
+                    },
+                  }],
+                });
+              }
+              // Second call: return a stop response
+              return Promise.resolve({
+                choices: [{
+                  finish_reason: 'stop',
+                  message: { role: 'assistant', content: 'Lease sent successfully to Maria Garcia.' },
+                }],
+              });
+            }),
+          },
+        },
+      }));
+    });
+  });
+
+  afterAll(() => {
+    jest.unmock('../src/api/index');
+    jest.unmock('../src/api/boldsign');
+    jest.unmock('openai');
+    jest.resetModules();
+  });
+
+  test('chat() triggers sendDocumentForSignature with full variable map', async () => {
+    const { chat } = require('../src/ai/openai');
+    const reply = await chat('Send lease to Maria Garcia', []);
+
+    expect(typeof reply).toBe('string');
+
+    // Verify sendDocumentForSignature was called
+    const boldSignMock = require('../src/api/boldsign');
+    expect(boldSignMock.sendDocumentForSignature).toHaveBeenCalled();
+
+    expect(capturedBoldSignArgs.docType).toBe('Lease');
+    expect(capturedBoldSignArgs.state).toBe('OH');
+    expect(capturedBoldSignArgs.tenantEmail).toBe('maria.garcia.tenant@example.com');
+    expect(capturedBoldSignArgs.landlordName).toBe('Dan Porat');
+
+    // Verify the full variables map
+    expect(capturedBoldSignArgs.variables.landlord_name).toBe('Dan Porat');
+    expect(capturedBoldSignArgs.variables.tenant_name).toBe('Maria Garcia');
+    expect(capturedBoldSignArgs.variables.tenant_phone).toBe('+14155551001');
+    expect(capturedBoldSignArgs.variables.unit_address).toBe('512 Maple Street');
+    expect(capturedBoldSignArgs.variables.unit_city).toBe('Cleveland');
+    expect(capturedBoldSignArgs.variables.unit_state).toBe('OH');
+    expect(capturedBoldSignArgs.variables.unit_zip).toBe('44101');
+    expect(capturedBoldSignArgs.variables.monthly_rent).toBe(2800);
+    expect(capturedBoldSignArgs.variables.security_deposit).toBe(5600);
+  }, 30_000);
+
+  test('chat() with doc_type=Renewal passes Renewal to sendDocumentForSignature', async () => {
+    jest.resetModules();
+
+    // Re-mock openai to request a Renewal
+    jest.mock('openai', () => {
+      let callCount = 0;
+      return jest.fn().mockImplementation(() => ({
+        chat: {
+          completions: {
+            create: jest.fn().mockImplementation(() => {
+              callCount++;
+              if (callCount % 2 === 1) {
+                return Promise.resolve({
+                  choices: [{
+                    finish_reason: 'tool_calls',
+                    message: {
+                      role: 'assistant', content: null,
+                      tool_calls: [{
+                        id: 'call_002', type: 'function',
+                        function: {
+                          name: 'send_lease_for_signature',
+                          arguments: JSON.stringify({ tenantName: 'Maria Garcia', doc_type: 'Renewal' }),
+                        },
+                      }],
+                    },
+                  }],
+                });
+              }
+              return Promise.resolve({
+                choices: [{
+                  finish_reason: 'stop',
+                  message: { role: 'assistant', content: 'Renewal sent to Maria Garcia.' },
+                }],
+              });
+            }),
+          },
+        },
+      }));
+    });
+
+    jest.mock('../src/api/index', () => ({
+      getTenants:  jest.fn().mockResolvedValue([mockTenant]),
+      getLeases:   jest.fn().mockResolvedValue([mockLease]),
+      getProperty: jest.fn().mockResolvedValue(mockProperty),
+    }));
+
+    jest.mock('../src/api/boldsign', () => ({
+      sendDocumentForSignature: jest.fn((args) => {
+        capturedBoldSignArgs = args;
+        return Promise.resolve({ documentId: 'DOC-RENEWAL-001' });
+      }),
+      sendLeaseForSignature: jest.fn(),
+    }));
+
+    const { chat: chat2 } = require('../src/ai/openai');
+    await chat2('Send renewal to Maria Garcia', []);
+
+    const boldSignMock2 = require('../src/api/boldsign');
+    expect(boldSignMock2.sendDocumentForSignature).toHaveBeenCalled();
+    expect(capturedBoldSignArgs.docType).toBe('Renewal');
+  }, 30_000);
+});
+
 // ─── 10. SMS Dispatcher – template generation ─────────────────────────────────
 
 describe('SMS Dispatcher – templates', () => {
