@@ -143,7 +143,7 @@ async function executeTool(toolCall) {
     }
 
     case 'send_lease_for_signature': {
-      const dropboxSign = require('../api/boldsign');
+      const boldSign = require('../api/boldsign');
       const tenants = await pmsClient.getTenants({ name: args.tenantName });
       if (!tenants.length) throw new Error(`No tenant found matching "${args.tenantName}"`);
       const tenant = tenants[0];
@@ -153,25 +153,58 @@ async function executeTool(toolCall) {
       const lease  = leases.find(l => l.lease_customer === tenant.name);
       if (!lease) throw new Error(`No active lease found for tenant "${tenant.name}"`);
 
-      const signRequest = await dropboxSign.sendLeaseForSignature({
+      // Fetch the property to get structured address fields and state for template routing
+      let property = null;
+      try {
+        property = await pmsClient.getProperty(lease.property);
+      } catch (_) {
+        // Non-fatal: fall back to partial data
+      }
+
+      const docType = args.doc_type || 'Lease';
+      const state   = property?.custom_state || '';
+
+      const variables = {
+        // Landlord identity (from env vars set once per deployment)
+        landlord_name:    process.env.LANDLORD_NAME    || '',
+        landlord_email:   process.env.LANDLORD_EMAIL   || '',
+        landlord_phone:   process.env.LANDLORD_PHONE   || '',
+        landlord_address: process.env.LANDLORD_ADDRESS || '',
+        // Tenant
+        tenant_name:  tenant.customer_name || tenant.name,
+        tenant_email: tenant.email_id      || '',
+        tenant_phone: tenant.mobile_no     || '',
+        // Property / unit
+        unit_address: property?.custom_street_address || property?.name1 || lease.property || '',
+        unit_city:    property?.custom_city           || '',
+        unit_state:   state,
+        unit_zip:     property?.custom_zip_code       || '',
+        // Lease terms
+        start_date:          lease.start_date                     || '',
+        end_date:            lease.end_date                       || '',
+        monthly_rent:        lease.monthly_rent                   || '',
+        security_deposit:    lease.security_deposit               || '',
+        notice_period:       lease.notice_period                  || '',
+        late_fee_grace_days: lease.custom_late_fee_grace_days     || '',
+        late_fee_amount:     lease.custom_late_fee_flat_amount    || '',
+      };
+
+      const signRequest = await boldSign.sendDocumentForSignature({
+        docType,
+        state,
         tenantEmail:   tenant.email_id,
         tenantName:    tenant.customer_name || tenant.name,
         landlordEmail: process.env.LANDLORD_EMAIL || '',
         landlordName:  process.env.LANDLORD_NAME  || 'Landlord',
-        variables: {
-          tenant_name:      tenant.customer_name || tenant.name,
-          unit_address:     lease.property || '',
-          start_date:       lease.start_date || '',
-          end_date:         lease.end_date   || '',
-          monthly_rent:     lease.monthly_rent || '',
-          security_deposit: lease.security_deposit || '',
-        },
+        variables,
       });
 
       return {
         sent: true,
         tenantEmail: tenant.email_id,
         documentId:  signRequest.documentId,
+        docType,
+        state,
       };
     }
 
