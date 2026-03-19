@@ -1074,7 +1074,7 @@ describe('BoldSign – pre-fill tags and signer roles', () => {
     jest.resetModules();
   });
 
-  test('all key pre-fill fields included in top-level prefillForms using template field IDs', async () => {
+  test('all key pre-fill fields included in existingFormFields on role 1 using template field IDs', async () => {
     const variables = {
       landlord_name: 'Dan Porat', landlord_email: 'dan@example.com',
       landlord_phone: '+14155551000', landlord_address: '123 Owner St',
@@ -1091,9 +1091,11 @@ describe('BoldSign – pre-fill tags and signer roles', () => {
       variables,
     });
 
-    // Pre-fill data is now at top-level prefillForms using actual BoldSign template field IDs
-    expect(lastPostPayload.prefillForms).toBeDefined();
-    const fieldIds = lastPostPayload.prefillForms.map(f => f.id);
+    // BoldSign API requires existingFormFields inside the role object (not a top-level prefillForms)
+    expect(lastPostPayload.prefillForms).toBeUndefined(); // must NOT be at top level
+    const tenantRole = lastPostPayload.roles.find(r => r.roleIndex === 1);
+    expect(tenantRole.existingFormFields).toBeDefined();
+    const fieldIds = tenantRole.existingFormFields.map(f => f.id);
 
     // OH_LEASE field IDs (from template properties API)
     expect(fieldIds).toContain('t_b47276be'); // landlord_name
@@ -1101,11 +1103,12 @@ describe('BoldSign – pre-fill tags and signer roles', () => {
     expect(fieldIds).toContain('t_61467ae8'); // unit_address
     expect(fieldIds).toContain('t_c68fab45'); // monthly_rent
     expect(fieldIds).toContain('t_c707f0d8'); // security_deposit
-    // Roles must NOT have formFields (pre-fill is at top level)
-    lastPostPayload.roles.forEach(r => expect(r.formFields).toBeUndefined());
+    // Landlord role must NOT have existingFormFields
+    const landlordRole = lastPostPayload.roles.find(r => r.roleIndex === 2);
+    expect(landlordRole.existingFormFields).toBeUndefined();
   });
 
-  test('empty variables are excluded from prefillForms', async () => {
+  test('empty variables are excluded from existingFormFields', async () => {
     await boldSign.sendDocumentForSignature({
       docType: 'Lease', state: 'OH',
       tenantEmail: 'maria@example.com', tenantName: 'Maria Garcia',
@@ -1113,11 +1116,12 @@ describe('BoldSign – pre-fill tags and signer roles', () => {
       variables: { monthly_rent: '2800', unit_state: '', security_deposit: null },
     });
 
-    const fieldIds = (lastPostPayload.prefillForms || []).map(f => f.id);
+    const tenantRole = lastPostPayload.roles.find(r => r.roleIndex === 1);
+    const fieldIds = (tenantRole?.existingFormFields || []).map(f => f.id);
 
     expect(fieldIds).toContain('t_c68fab45');    // monthly_rent field ID — included
     // t_f213d8f7 is city_state_zip; with only unit_state='' it produces '' → excluded
-    const cityStateField = (lastPostPayload.prefillForms || []).find(f => f.id === 't_f213d8f7');
+    const cityStateField = (tenantRole?.existingFormFields || []).find(f => f.id === 't_f213d8f7');
     if (cityStateField) expect(cityStateField.value).not.toBe('');
     // t_c707f0d8 is security_deposit; null → excluded
     expect(fieldIds).not.toContain('t_c707f0d8');

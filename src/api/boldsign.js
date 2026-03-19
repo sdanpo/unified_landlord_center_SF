@@ -229,6 +229,10 @@ async function sendDocumentForSignature({
         signerName:  tenantName,
         signerEmail: tenantEmail,
         signerType:  'Signer',
+        // existingFormFields pre-fills template text fields before the document is sent.
+        // All prefill fields are assigned to role 1; BoldSign matches them by field ID
+        // regardless of which role "owns" the field in the template.
+        ...(prefillForms.length ? { existingFormFields: prefillForms } : {}),
       },
       {
         roleIndex:   2,
@@ -238,7 +242,6 @@ async function sendDocumentForSignature({
         signerType:  'Signer',
       },
     ],
-    ...(prefillForms.length ? { prefillForms } : {}),
     reminderSettings: {
       enableAutoReminder: true,
       reminderDays:       3,
