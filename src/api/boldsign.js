@@ -150,7 +150,6 @@ async function sendDocumentForSignature({
         signerName:  tenantName,
         signerEmail: tenantEmail,
         signerType:  'Signer',
-        ...(preFillTags.length ? { formFields: preFillTags.map(t => ({ ...t, fieldType: 'Textbox' })) } : {}),
       },
       {
         roleIndex:   2,
@@ -159,6 +158,7 @@ async function sendDocumentForSignature({
         signerType:  'Signer',
       },
     ],
+    ...(preFillTags.length ? { prefillForms: preFillTags } : {}),
     reminderSettings: {
       enableAutoReminder: true,
       reminderDays:       3,
