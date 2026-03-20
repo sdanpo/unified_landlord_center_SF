@@ -1097,15 +1097,19 @@ describe('BoldSign – pre-fill tags and signer roles', () => {
     expect(tenantRole.existingFormFields).toBeDefined();
     const fieldIds = tenantRole.existingFormFields.map(f => f.id);
 
-    // OH_LEASE field IDs (from template properties API)
+    // OH_LEASE role-1 field IDs (from GET /v1/document/properties)
     expect(fieldIds).toContain('t_b47276be'); // landlord_name
     expect(fieldIds).toContain('t_9cfaa4e0'); // tenant_name
     expect(fieldIds).toContain('t_61467ae8'); // unit_address
     expect(fieldIds).toContain('t_c68fab45'); // monthly_rent
     expect(fieldIds).toContain('t_c707f0d8'); // security_deposit
-    // Landlord role must NOT have existingFormFields
+
+    // Landlord role (role 2) should have existingFormFields with landlord name fields
     const landlordRole = lastPostPayload.roles.find(r => r.roleIndex === 2);
-    expect(landlordRole.existingFormFields).toBeUndefined();
+    expect(landlordRole.existingFormFields).toBeDefined();
+    const landlordFieldIds = landlordRole.existingFormFields.map(f => f.id);
+    expect(landlordFieldIds).toContain('t_8e851d00'); // landlord printed name (p13)
+    expect(landlordFieldIds).toContain('t_4991b256'); // landlord name (paired field)
   });
 
   test('empty variables are excluded from existingFormFields', async () => {

@@ -43,28 +43,34 @@ const TEMPLATE_ROLES = {
   NC_RENEWAL: ['Tenant', 'Landlord'],
 };
 
-// Maps template key → function(vars) → prefillForms array
-// Each entry maps a BoldSign form field ID to a value derived from the variables object.
-// Field IDs were discovered from GET /v1/template/properties for each template.
+// Maps template key → function(vars) → prefillForms array for role 1 (Tenant signer).
+// Field IDs were discovered from GET /v1/document/properties on sent documents.
+// Role 2 (landlord) fields are in TEMPLATE_ROLE2_FIELD_MAPS below.
 const TEMPLATE_FIELD_MAPS = {
-  OH_LEASE: (v) => [
-    { id: 't_b47276be', value: v.landlord_name    },   // Owner / Landlord full name
-    { id: 't_2ca53bf9', value: v.landlord_address  },   // Street, city, state, ZIP
-    { id: 't_b4647a9a', value: v.landlord_phone || v.landlord_email },  // Phone / email
-    { id: 't_9cfaa4e0', value: v.tenant_name       },   // Full legal name(s) of all tenants
-    { id: 't_61467ae8', value: v.unit_address      },   // Rental property street address
-    { id: 't_f213d8f7', value: cityStateZip(v)     },   // City, State, ZIP
-    { id: 't_91944728', value: fmtDate(v.start_date) }, // MM/DD/YYYY (start)
-    { id: 't_d509523a', value: fmtDate(v.end_date)   }, // MM/DD/YYYY (end)
-    { id: 't_9e25018f', value: v.security_deposit  },   // e.g. 1,555.00 (deposit line)
-    { id: 't_6da942d6', value: v.monthly_rent      },   // e.g. 1,200.00 (rent line)
-    { id: 't_c68fab45', value: v.monthly_rent      },   // Monthly rent amount
-    { id: 't_c707f0d8', value: v.security_deposit  },   // Security deposit amount
-    { id: 't_af745be4', value: v.unit_address      },   // Tenant forwarding address
-    { id: 't_5dff550d', value: fmtDate(v.start_date) }, // Lease start date
-    { id: 't_3172ba19', value: fmtDate(v.end_date)   }, // Lease end date
-    { id: 't_8cfdbce1', value: v.tenant_name       },   // Tenant 1 printed name
-  ],
+  OH_LEASE: (v) => {
+    const la = parseLandlordAddress(v.landlord_address);
+    return [
+      { id: 't_b47276be', value: v.landlord_name                    },  // p1 y=165 Landlord name
+      { id: 't_2ca53bf9', value: la.street                          },  // p1 y=197 Landlord street
+      { id: 't_cf14dc5a', value: la.city                            },  // p1 y=241 Landlord city
+      { id: 't_1cf28b18', value: la.stateZip                        },  // p1 y=273 Landlord state/ZIP
+      { id: 't_b4647a9a', value: v.landlord_phone || v.landlord_email}, // p1 y=305 Phone/email
+      { id: 't_9cfaa4e0', value: v.tenant_name                      },  // p1 y=339 Tenant name
+      { id: 't_526887b1', value: cityStateZip(v)                    },  // p1 y=372 Property city/state/ZIP (tenant section)
+      { id: 't_61467ae8', value: v.unit_address                     },  // p1 y=404 Property street address
+      { id: 't_f213d8f7', value: cityStateZip(v)                    },  // p1 y=436 City, State, ZIP
+      { id: 't_91944728', value: fmtDate(v.start_date)              },  // p1 y=469 Lease start date
+      { id: 't_d509523a', value: fmtDate(v.end_date)                },  // p1 y=469 Lease end date
+      { id: 't_9e25018f', value: v.security_deposit                 },  // p1 y=503 Security deposit
+      { id: 't_6da942d6', value: v.monthly_rent                     },  // p1 y=553 Monthly rent
+      { id: 't_c68fab45', value: v.monthly_rent                     },  // p2 y=153 Monthly rent (repeat)
+      { id: 't_c707f0d8', value: v.security_deposit                 },  // p2 y=393 Security deposit (repeat)
+      { id: 't_af745be4', value: v.unit_address                     },  // p2 y=785 Tenant forwarding address
+      { id: 't_5dff550d', value: fmtDate(v.start_date)              },  // p3 y=75  Lease start (repeat)
+      { id: 't_3172ba19', value: fmtDate(v.end_date)                },  // p3 y=75  Lease end (repeat)
+      { id: 't_8cfdbce1', value: v.tenant_name                      },  // p13 y=673 Tenant printed name
+    ];
+  },
 
   NC_LEASE: (v) => [
     { id: 't_25523961', value: v.landlord_name    },   // Landlord / owner full name
@@ -109,6 +115,22 @@ const TEMPLATE_FIELD_MAPS = {
   ],
 };
 
+/**
+ * Pre-fill fields assigned to role 2 (landlord / Property Manager) on the signature page.
+ * Field IDs from GET /v1/document/properties on sent OH_LEASE documents (page 13):
+ *   t_8e851d00 (y=329) — landlord printed name
+ *   t_4991b256 (y=329) — landlord title / name (side-by-side field)
+ *   t_ae86f7ea (y=397) — landlord mailing address
+ */
+const TEMPLATE_ROLE2_FIELD_MAPS = {
+  OH_LEASE: (v) => [
+    { id: 't_8e851d00', value: v.landlord_name    },   // p13 y=329 Landlord printed name
+    { id: 't_4991b256', value: v.landlord_name    },   // p13 y=329 Landlord name (paired field)
+    { id: 't_ae86f7ea', value: v.landlord_address },   // p13 y=397 Landlord address
+  ],
+  // NC / Renewal signature-page fields can be added here once confirmed via API
+};
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 /** Format ISO date (YYYY-MM-DD) → MM/DD/YYYY expected by templates. */
@@ -120,10 +142,28 @@ function fmtDate(iso) {
   return `${m}/${d}/${y}`;
 }
 
-/** Build "City, State ZIP" string from variables. */
+/** Build "City, State ZIP" string from property unit variables. */
 function cityStateZip(v) {
   const parts = [v.unit_city, v.unit_state].filter(Boolean).join(', ');
   return v.unit_zip ? `${parts} ${v.unit_zip}` : parts;
+}
+
+/**
+ * Split a full landlord address string into { street, city, stateZip }.
+ * Handles formats such as:
+ *   "123 Main St, Springfield, OH 45501"     → street="123 Main St", city="Springfield", stateZip="OH 45501"
+ *   "123 Main St, OH 45501"                  → street="123 Main St", city="", stateZip="OH 45501"
+ *   "123 Main St"                            → street="123 Main St", city="", stateZip=""
+ */
+function parseLandlordAddress(addr) {
+  if (!addr) return { street: '', city: '', stateZip: '' };
+  // "Street, City, ST 12345[-0000]"
+  const m3 = addr.match(/^(.+?),\s*([^,]+?),\s*([A-Z]{2}\s+\d{5}(?:-\d{4})?)$/);
+  if (m3) return { street: m3[1].trim(), city: m3[2].trim(), stateZip: m3[3].trim() };
+  // "Street, ST 12345" or "Street, City ST 12345"
+  const m2 = addr.match(/^(.+?),\s*(.+\s+[A-Z]{2}\s+\d{5}(?:-\d{4})?)$/);
+  if (m2) return { street: m2[1].trim(), city: '', stateZip: m2[2].trim() };
+  return { street: addr.trim(), city: '', stateZip: '' };
 }
 
 function buildHttpsAgent() {
@@ -170,11 +210,11 @@ function resolveTemplateId(state, docType) {
 }
 
 /**
- * Build prefillForms array from variables using the template-specific field map.
+ * Build existingFormFields array from variables using the template-specific field map.
  * Falls back to empty array if no map is defined for this template.
  */
-function buildPrefillForms(key, variables) {
-  const mapper = TEMPLATE_FIELD_MAPS[key];
+function buildFormFields(fieldMap, variables) {
+  const mapper = fieldMap;
   if (!mapper) return [];
   return mapper(variables)
     .filter(({ value }) => value !== undefined && value !== null && value !== '')
@@ -213,22 +253,28 @@ async function sendDocumentForSignature({
   const isRenewal  = docType === 'Renewal';
 
   const [tenantRole, landlordRole] = TEMPLATE_ROLES[key] || ['Tenant', 'Landlord'];
-  const prefillForms = buildPrefillForms(key, variables);
+  const role1Fields = buildFormFields(TEMPLATE_FIELD_MAPS[key],       variables);
+  const role2Fields = buildFormFields(TEMPLATE_ROLE2_FIELD_MAPS[key], variables);
 
   logger.info('BoldSign: prefill fields being sent', {
     templateKey: key,
     templateId,
-    fieldCount: prefillForms.length,
-    fields: prefillForms,
+    role1FieldCount: role1Fields.length,
+    role2FieldCount: role2Fields.length,
+    role1Fields,
+    role2Fields,
     variablesSnapshot: {
-      landlord_name: variables.landlord_name,
-      tenant_name: variables.tenant_name,
-      unit_address: variables.unit_address,
-      unit_state: variables.unit_state,
-      monthly_rent: variables.monthly_rent,
+      landlord_name:    variables.landlord_name,
+      landlord_address: variables.landlord_address,
+      tenant_name:      variables.tenant_name,
+      unit_address:     variables.unit_address,
+      unit_city:        variables.unit_city,
+      unit_state:       variables.unit_state,
+      unit_zip:         variables.unit_zip,
+      monthly_rent:     variables.monthly_rent,
       security_deposit: variables.security_deposit,
-      start_date: variables.start_date,
-      end_date: variables.end_date,
+      start_date:       variables.start_date,
+      end_date:         variables.end_date,
     },
   });
 
@@ -246,10 +292,7 @@ async function sendDocumentForSignature({
         signerName:  tenantName,
         signerEmail: tenantEmail,
         signerType:  'Signer',
-        // existingFormFields pre-fills template text fields before the document is sent.
-        // All prefill fields are assigned to role 1; BoldSign matches them by field ID
-        // regardless of which role "owns" the field in the template.
-        ...(prefillForms.length ? { existingFormFields: prefillForms } : {}),
+        ...(role1Fields.length ? { existingFormFields: role1Fields } : {}),
       },
       {
         roleIndex:   2,
@@ -257,6 +300,7 @@ async function sendDocumentForSignature({
         signerName:  landlordName,
         signerEmail: landlordEmail,
         signerType:  'Signer',
+        ...(role2Fields.length ? { existingFormFields: role2Fields } : {}),
       },
     ],
     reminderSettings: {
