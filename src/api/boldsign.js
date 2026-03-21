@@ -22,8 +22,9 @@
  * BoldSign API reference: https://developers.boldsign.com/
  */
 
-const axios  = require('axios');
-const logger = require('../logger');
+const axios       = require('axios');
+const logger      = require('../logger');
+const boldSignDirect = require('./boldsign-direct');
 
 // ─── Template registry ───────────────────────────────────────────────────────
 
@@ -248,7 +249,16 @@ async function sendDocumentForSignature({
     return { documentId: 'SKIPPED' };
   }
 
-  const key        = resolveTemplateKey(state, docType);
+  // Ohio Lease: use the direct PDF-overlay approach so all data is visible to all signers.
+  // (BoldSign template textbox fields are hidden from non-assigned roles during signing.)
+  const key = resolveTemplateKey(state, docType);
+  if (key === 'OH_LEASE') {
+    logger.info('BoldSign: routing OH_LEASE to direct PDF-overlay sender');
+    return boldSignDirect.sendOhLeaseDirectly({
+      tenantEmail, tenantName, landlordEmail, landlordName, variables,
+    });
+  }
+
   const templateId = resolveTemplateId(state, docType);
   const isRenewal  = docType === 'Renewal';
 
