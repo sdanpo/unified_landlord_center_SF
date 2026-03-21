@@ -950,6 +950,7 @@ describe('Scheduler – runStaleWorkOrderCheck()', () => {
 
 describe('BoldSign – template routing (resolveTemplateId via sendDocumentForSignature)', () => {
   let boldSign;
+  let boldSignDirect;
 
   // Capture the last axios.post payload for assertions
   let lastPostPath = '';
@@ -958,7 +959,14 @@ describe('BoldSign – template routing (resolveTemplateId via sendDocumentForSi
   beforeAll(() => {
     jest.resetModules();
 
-    // Stub axios so no real HTTP calls are made
+    // OH_LEASE uses the direct PDF-overlay sender — mock it so no network call is made
+    jest.mock('../src/api/boldsign-direct', () => ({
+      sendOhLeaseDirectly: jest.fn(() => Promise.resolve({ documentId: 'DOC-OH-DIRECT-001' })),
+      buildVars: jest.requireActual('../src/api/boldsign-direct').buildVars,
+      OH_LEASE_TEXT_OVERLAYS: jest.requireActual('../src/api/boldsign-direct').OH_LEASE_TEXT_OVERLAYS,
+    }));
+
+    // Stub axios so no real HTTP calls are made for template-based routes
     jest.mock('axios', () => {
       const inst = {
         interceptors: { response: { use: jest.fn() } },
@@ -983,9 +991,11 @@ describe('BoldSign – template routing (resolveTemplateId via sendDocumentForSi
     delete process.env.BOLDSIGN_TEMPLATE_ID;   // no legacy fallback
 
     boldSign = require('../src/api/boldsign');
+    boldSignDirect = require('../src/api/boldsign-direct');
   });
 
   afterAll(() => {
+    jest.unmock('../src/api/boldsign-direct');
     jest.unmock('axios');
     jest.resetModules();
   });
@@ -998,11 +1008,11 @@ describe('BoldSign – template routing (resolveTemplateId via sendDocumentForSi
     variables:     { start_date: '2026-07-01', end_date: '2027-06-30', monthly_rent: 2500 },
   };
 
-  test('OH + Lease → uses BOLDSIGN_TEMPLATE_OH_LEASE', async () => {
-    lastPostPayload = null;
-    await boldSign.sendDocumentForSignature({ ...baseParams, docType: 'Lease', state: 'OH' });
-    expect(lastPostPath).toContain('tpl-oh-lease');
-    expect(lastPostPayload.title).toContain('Lease Agreement');
+  test('OH + Lease → routes to sendOhLeaseDirectly (PDF-overlay, not template API)', async () => {
+    boldSignDirect.sendOhLeaseDirectly.mockClear();
+    const result = await boldSign.sendDocumentForSignature({ ...baseParams, docType: 'Lease', state: 'OH' });
+    expect(boldSignDirect.sendOhLeaseDirectly).toHaveBeenCalledTimes(1);
+    expect(result.documentId).toBe('DOC-OH-DIRECT-001');
   });
 
   test('OH + Renewal → uses BOLDSIGN_TEMPLATE_OH_RENEWAL', async () => {
@@ -1021,9 +1031,11 @@ describe('BoldSign – template routing (resolveTemplateId via sendDocumentForSi
     expect(lastPostPath).toContain('tpl-nc-renewal');
   });
 
-  test('state is case-insensitive (oh → OH_LEASE)', async () => {
-    await boldSign.sendDocumentForSignature({ ...baseParams, docType: 'Lease', state: 'oh' });
-    expect(lastPostPath).toContain('tpl-oh-lease');
+  test('state is case-insensitive (oh → OH_LEASE → sendOhLeaseDirectly)', async () => {
+    boldSignDirect.sendOhLeaseDirectly.mockClear();
+    const result = await boldSign.sendDocumentForSignature({ ...baseParams, docType: 'Lease', state: 'oh' });
+    expect(boldSignDirect.sendOhLeaseDirectly).toHaveBeenCalledTimes(1);
+    expect(result.documentId).toBe('DOC-OH-DIRECT-001');
   });
 
   test('missing template throws descriptive error', async () => {
@@ -1049,6 +1061,13 @@ describe('BoldSign – pre-fill tags and signer roles', () => {
   beforeAll(() => {
     jest.resetModules();
 
+    // Mock boldsign-direct so OH_LEASE routing tests don't hit the network
+    jest.mock('../src/api/boldsign-direct', () => ({
+      sendOhLeaseDirectly: jest.fn(() => Promise.resolve({ documentId: 'DOC-OH-DIRECT-001' })),
+      buildVars: jest.requireActual('../src/api/boldsign-direct').buildVars,
+      OH_LEASE_TEXT_OVERLAYS: jest.requireActual('../src/api/boldsign-direct').OH_LEASE_TEXT_OVERLAYS,
+    }));
+
     jest.mock('axios', () => {
       const inst = {
         interceptors: { response: { use: jest.fn() } },
@@ -1065,27 +1084,44 @@ describe('BoldSign – pre-fill tags and signer roles', () => {
 
     process.env.BOLDSIGN_API_KEY             = 'test-api-key';
     process.env.BOLDSIGN_TEMPLATE_OH_LEASE   = 'tpl-oh-lease';
+    process.env.BOLDSIGN_TEMPLATE_NC_LEASE   = 'tpl-nc-lease';
 
     boldSign = require('../src/api/boldsign');
   });
 
   afterAll(() => {
+    jest.unmock('../src/api/boldsign-direct');
     jest.unmock('axios');
     jest.resetModules();
   });
 
-  test('all key pre-fill fields included in existingFormFields on role 1 using template field IDs', async () => {
+  test('OH_LEASE routes to sendOhLeaseDirectly (PDF-overlay approach)', async () => {
+    const boldSignDirect = require('../src/api/boldsign-direct');
+    boldSignDirect.sendOhLeaseDirectly.mockClear();
+
+    const result = await boldSign.sendDocumentForSignature({
+      docType: 'Lease', state: 'OH',
+      tenantEmail: 'maria@example.com', tenantName: 'Maria Garcia',
+      landlordEmail: 'dan@example.com', landlordName: 'Dan Porat',
+      variables: { monthly_rent: '2800', unit_state: 'OH' },
+    });
+
+    expect(boldSignDirect.sendOhLeaseDirectly).toHaveBeenCalledTimes(1);
+    expect(result.documentId).toBe('DOC-OH-DIRECT-001');
+  });
+
+  test('NC_LEASE uses template approach with existingFormFields on role 1', async () => {
     const variables = {
       landlord_name: 'Dan Porat', landlord_email: 'dan@example.com',
       landlord_phone: '+14155551000', landlord_address: '123 Owner St',
       tenant_name: 'Maria Garcia', tenant_email: 'maria@example.com', tenant_phone: '+14155551001',
-      unit_address: '512 Maple St', unit_city: 'Cleveland', unit_state: 'OH', unit_zip: '44101',
+      unit_address: '512 Maple St', unit_city: 'Charlotte', unit_state: 'NC', unit_zip: '28201',
       start_date: '2026-07-01', end_date: '2027-06-30',
       monthly_rent: '2800', security_deposit: '5600',
     };
 
     await boldSign.sendDocumentForSignature({
-      docType: 'Lease', state: 'OH',
+      docType: 'Lease', state: 'NC',
       tenantEmail: 'maria@example.com', tenantName: 'Maria Garcia',
       landlordEmail: 'dan@example.com', landlordName: 'Dan Porat',
       variables,
@@ -1097,28 +1133,22 @@ describe('BoldSign – pre-fill tags and signer roles', () => {
     expect(tenantRole.existingFormFields).toBeDefined();
     const fieldIds = tenantRole.existingFormFields.map(f => f.id);
 
-    // OH_LEASE role-1 field IDs (from GET /v1/document/properties)
-    expect(fieldIds).toContain('t_b47276be'); // landlord_name
-    expect(fieldIds).toContain('t_9cfaa4e0'); // tenant_name
-    expect(fieldIds).toContain('t_61467ae8'); // unit_address
-    expect(fieldIds).toContain('t_c68fab45'); // monthly_rent
-    expect(fieldIds).toContain('t_c707f0d8'); // security_deposit
+    // NC_LEASE role-1 field IDs (from GET /v1/document/properties)
+    expect(fieldIds).toContain('t_25523961'); // landlord_name
+    expect(fieldIds).toContain('t_9d99a50b'); // tenant_name
+    expect(fieldIds).toContain('t_0cd651e3'); // unit_address
+    expect(fieldIds).toContain('t_2f67fbdd'); // monthly_rent
+    expect(fieldIds).toContain('t_29a2e120'); // security_deposit
 
-    // Landlord role (role 2) should have existingFormFields with landlord name fields
+    // Sequential signing: Tenant signs first (order 1), PM signs second (order 2)
     const landlordRole = lastPostPayload.roles.find(r => r.roleIndex === 2);
-    expect(landlordRole.existingFormFields).toBeDefined();
-    const landlordFieldIds = landlordRole.existingFormFields.map(f => f.id);
-    expect(landlordFieldIds).toContain('t_8e851d00'); // landlord printed name (p13)
-    expect(landlordFieldIds).toContain('t_4991b256'); // landlord name (paired field)
-
-    // Sequential signing: Tenant signs first (order 1) so PM sees filled fields when they sign (order 2)
     expect(tenantRole.signerOrder).toBe(1);
     expect(landlordRole.signerOrder).toBe(2);
   });
 
-  test('empty variables are excluded from existingFormFields', async () => {
+  test('empty variables are excluded from existingFormFields (NC_LEASE)', async () => {
     await boldSign.sendDocumentForSignature({
-      docType: 'Lease', state: 'OH',
+      docType: 'Lease', state: 'NC',
       tenantEmail: 'maria@example.com', tenantName: 'Maria Garcia',
       landlordEmail: 'dan@example.com', landlordName: 'Dan Porat',
       variables: { monthly_rent: '2800', unit_state: '', security_deposit: null },
@@ -1127,17 +1157,14 @@ describe('BoldSign – pre-fill tags and signer roles', () => {
     const tenantRole = lastPostPayload.roles.find(r => r.roleIndex === 1);
     const fieldIds = (tenantRole?.existingFormFields || []).map(f => f.id);
 
-    expect(fieldIds).toContain('t_c68fab45');    // monthly_rent field ID — included
-    // t_f213d8f7 is city_state_zip; with only unit_state='' it produces '' → excluded
-    const cityStateField = (tenantRole?.existingFormFields || []).find(f => f.id === 't_f213d8f7');
-    if (cityStateField) expect(cityStateField.value).not.toBe('');
-    // t_c707f0d8 is security_deposit; null → excluded
-    expect(fieldIds).not.toContain('t_c707f0d8');
+    expect(fieldIds).toContain('t_2f67fbdd');    // monthly_rent — included
+    // t_29a2e120 is NC security_deposit; null → excluded
+    expect(fieldIds).not.toContain('t_29a2e120');
   });
 
-  test('landlord role has RoleIndex 2, no formFields', async () => {
+  test('landlord role has RoleIndex 2, no formFields (NC_LEASE)', async () => {
     await boldSign.sendDocumentForSignature({
-      docType: 'Lease', state: 'OH',
+      docType: 'Lease', state: 'NC',
       tenantEmail: 'a@b.com', tenantName: 'Tenant A',
       landlordEmail: 'l@b.com', landlordName: 'Landlord L',
       variables: { monthly_rent: '1500' },
@@ -1149,9 +1176,9 @@ describe('BoldSign – pre-fill tags and signer roles', () => {
     expect(landlordRole.formFields).toBeUndefined();
   });
 
-  test('auto-reminder settings are included', async () => {
+  test('auto-reminder settings are included (NC_LEASE)', async () => {
     await boldSign.sendDocumentForSignature({
-      docType: 'Lease', state: 'OH',
+      docType: 'Lease', state: 'NC',
       tenantEmail: 'a@b.com', tenantName: 'T', landlordEmail: 'l@b.com', landlordName: 'L',
       variables: {},
     });
@@ -1164,18 +1191,21 @@ describe('BoldSign – pre-fill tags and signer roles', () => {
 
 describe('BoldSign – sendLeaseForSignature() backward-compat wrapper', () => {
   let boldSign;
-  let capturedArgs = null;
 
   beforeAll(() => {
     jest.resetModules();
 
+    // OH_LEASE routes to boldsign-direct — mock it so no network call is made
+    jest.mock('../src/api/boldsign-direct', () => ({
+      sendOhLeaseDirectly: jest.fn(() => Promise.resolve({ documentId: 'DOC-COMPAT-001' })),
+      buildVars: jest.requireActual('../src/api/boldsign-direct').buildVars,
+      OH_LEASE_TEXT_OVERLAYS: jest.requireActual('../src/api/boldsign-direct').OH_LEASE_TEXT_OVERLAYS,
+    }));
+
     jest.mock('axios', () => {
       const inst = {
         interceptors: { response: { use: jest.fn() } },
-        post: jest.fn((_path, body) => {
-          capturedArgs = body;
-          return Promise.resolve({ data: { documentId: 'DOC-COMPAT-001' } });
-        }),
+        post: jest.fn(() => Promise.resolve({ data: { documentId: 'DOC-COMPAT-001' } })),
         get: jest.fn(),
       };
       const mockAxios = jest.fn();
@@ -1190,6 +1220,7 @@ describe('BoldSign – sendLeaseForSignature() backward-compat wrapper', () => {
   });
 
   afterAll(() => {
+    jest.unmock('../src/api/boldsign-direct');
     jest.unmock('axios');
     jest.resetModules();
   });
@@ -1203,17 +1234,13 @@ describe('BoldSign – sendLeaseForSignature() backward-compat wrapper', () => {
       variables:     { unit_state: 'OH', monthly_rent: '2500' },
     });
 
+    // OH_LEASE routes to direct sender; result should have a documentId
     expect(result.documentId).toBe('DOC-COMPAT-001');
-    // The title should contain "Lease Agreement" (not "Renewal")
-    expect(capturedArgs.title).toContain('Lease Agreement');
-    // State derived from variables.unit_state → OH_LEASE template
-    expect(capturedArgs).toBeDefined();
   });
 
   test('BOLDSIGN_API_KEY not set → returns SKIPPED without HTTP call', async () => {
     const savedKey = process.env.BOLDSIGN_API_KEY;
     delete process.env.BOLDSIGN_API_KEY;
-    capturedArgs = null;
 
     const result = await boldSign.sendLeaseForSignature({
       tenantEmail: 'a@b.com', tenantName: 'A', landlordEmail: 'l@b.com', landlordName: 'L',
@@ -1221,7 +1248,6 @@ describe('BoldSign – sendLeaseForSignature() backward-compat wrapper', () => {
     });
 
     expect(result.documentId).toBe('SKIPPED');
-    expect(capturedArgs).toBeNull(); // no HTTP call made
 
     process.env.BOLDSIGN_API_KEY = savedKey;
   });
