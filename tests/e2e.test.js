@@ -1110,6 +1110,10 @@ describe('BoldSign – pre-fill tags and signer roles', () => {
     const landlordFieldIds = landlordRole.existingFormFields.map(f => f.id);
     expect(landlordFieldIds).toContain('t_8e851d00'); // landlord printed name (p13)
     expect(landlordFieldIds).toContain('t_4991b256'); // landlord name (paired field)
+
+    // Sequential signing: Tenant signs first (order 1) so PM sees filled fields when they sign (order 2)
+    expect(tenantRole.signerOrder).toBe(1);
+    expect(landlordRole.signerOrder).toBe(2);
   });
 
   test('empty variables are excluded from existingFormFields', async () => {
