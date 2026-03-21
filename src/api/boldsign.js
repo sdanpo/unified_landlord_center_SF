@@ -292,6 +292,7 @@ async function sendDocumentForSignature({
         signerName:  tenantName,
         signerEmail: tenantEmail,
         signerType:  'Signer',
+        signerOrder: 1,   // Tenant signs first — their filled fields appear in the PDF for PM
         ...(role1Fields.length ? { existingFormFields: role1Fields } : {}),
       },
       {
@@ -300,6 +301,7 @@ async function sendDocumentForSignature({
         signerName:  landlordName,
         signerEmail: landlordEmail,
         signerType:  'Signer',
+        signerOrder: 2,   // PM signs second — sees all tenant fields already committed
         ...(role2Fields.length ? { existingFormFields: role2Fields } : {}),
       },
     ],
