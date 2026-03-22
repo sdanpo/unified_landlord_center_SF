@@ -374,4 +374,83 @@ async function runStaleWorkOrderCheck() {
   }
 }
 
-module.exports = { runOverdueRentCheck, runStaleWorkOrderCheck, runLeaseRenewalCheck, runLateFeeCheck };
+// ─── Weekly Portfolio Report ──────────────────────────────────────────────────
+
+/**
+ * Send a weekly portfolio summary to the landlord via Telegram.
+ * Covers: outstanding balances, open work orders, leases expiring within 60 days.
+ */
+async function runWeeklyReport() {
+  const notifyLandlord = getNotifyLandlord();
+
+  const today    = new Date().toISOString().split('T')[0];
+  const in60days = new Date(Date.now() + 60 * 86_400_000).toISOString().split('T')[0];
+
+  let overdue = [], tickets = [], leases = [];
+
+  try { overdue = await api.getOutstandingBalances(); } catch (err) {
+    logger.error('Weekly report: could not fetch invoices', { error: err.message });
+  }
+  try { tickets = await api.getWorkOrders({ status: 'Open' }); } catch (err) {
+    logger.error('Weekly report: could not fetch tickets', { error: err.message });
+  }
+  try { leases = await api.getExpiringLeases(60); } catch (err) {
+    logger.error('Weekly report: could not fetch leases', { error: err.message });
+  }
+
+  const overdueFiltered = (overdue || []).filter(inv => {
+    const dOD = inv.daysOverdue ?? (inv.due_date ? daysOverdue(inv.due_date) : 0);
+    return dOD > 0;
+  });
+
+  const lines = ['📊 Weekly Property Report\n'];
+
+  // Delinquencies
+  lines.push(`🚨 Delinquencies (${overdueFiltered.length})`);
+  if (overdueFiltered.length === 0) {
+    lines.push('  • All rents current ✅');
+  } else {
+    overdueFiltered.forEach(i => {
+      const name = i.tenantName || i.customer_name || '';
+      const unit = i.unitName   || i.custom_unit   || 'N/A';
+      const amt  = i.amountDue  ?? i.outstanding_amount ?? 0;
+      lines.push(`  • ${name} (${unit}): $${amt}`);
+    });
+  }
+  lines.push('');
+
+  // Open work orders
+  const openTickets = (tickets || []).filter(t => !['Resolved', 'Closed'].includes(t.status));
+  lines.push(`🔧 Open Work Orders (${openTickets.length})`);
+  if (openTickets.length === 0) {
+    lines.push('  • No open tickets ✅');
+  } else {
+    openTickets.slice(0, 10).forEach(t => {
+      lines.push(`  • #${t.name || t.ticket_name}: ${t.subject || t.description || 'N/A'} [${t.priority || 'Normal'}]`);
+    });
+    if (openTickets.length > 10) lines.push(`  …and ${openTickets.length - 10} more`);
+  }
+  lines.push('');
+
+  // Expiring leases
+  lines.push(`📋 Leases Expiring (60 days) (${(leases || []).length})`);
+  if (!leases || leases.length === 0) {
+    lines.push('  • No leases expiring soon ✅');
+  } else {
+    leases.forEach(l => {
+      const end = new Date(l.end_date);
+      const daysLeft = Math.ceil((end.getTime() - Date.now()) / 86_400_000);
+      lines.push(`  • ${l.lease_customer || ''} (${l.property || 'N/A'}): expires ${l.end_date} (${daysLeft}d)`);
+    });
+  }
+
+  logger.info('Weekly report sending', { overdue: overdueFiltered.length, tickets: openTickets.length, leases: (leases||[]).length });
+
+  try {
+    await notifyLandlord(lines.join('\n'));
+  } catch (err) {
+    logger.error('Failed to send weekly report Telegram message', { error: err.message });
+  }
+}
+
+module.exports = { runOverdueRentCheck, runStaleWorkOrderCheck, runLeaseRenewalCheck, runLateFeeCheck, runWeeklyReport };

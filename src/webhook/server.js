@@ -1029,6 +1029,56 @@ function makePublicApiRouter() {
   return router;
 }
 
+// ── Admin UI router (automation settings) ─────────────────────────────────────
+
+function makeAdminRouter() {
+  const path   = require('path');
+  const cron   = require('../automation/cron');
+  const router = express.Router();
+
+  // Serve the admin HTML page
+  router.get('/', (_req, res) => {
+    res.sendFile(path.resolve(__dirname, '../admin.html'));
+  });
+
+  // GET /admin/api/scheduler-status – returns all job statuses
+  router.get('/api/scheduler-status', (_req, res) => {
+    try {
+      res.json(cron.getStatus());
+    } catch (err) {
+      logger.error('Admin: getStatus failed', { error: err.message });
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /admin/api/run-job/:id – run a job immediately
+  router.post('/api/run-job/:id', async (req, res) => {
+    const { id } = req.params;
+    try {
+      logger.info('Admin: manual job trigger', { job: id });
+      const result = await cron.runJobNow(id);
+      res.json(result || { success: true });
+    } catch (err) {
+      logger.error('Admin: runJobNow failed', { job: id, error: err.message });
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  // POST /admin/api/scheduler-settings – save settings and reload cron
+  router.post('/api/scheduler-settings', (req, res) => {
+    const settings = req.body;
+    if (!settings || typeof settings !== 'object') {
+      return res.status(400).json({ error: 'Invalid payload' });
+    }
+    const ok = cron.saveSettings(settings);
+    if (!ok) return res.status(500).json({ error: 'Failed to write settings file' });
+    cron.reloadScheduler();
+    res.json({ success: true });
+  });
+
+  return router;
+}
+
 function createWebhookApp() {
   const app = express();
   app.use(express.json({ verify: captureRawBody }));
@@ -1036,6 +1086,7 @@ function createWebhookApp() {
   app.use(ensureRawBody); // fallback: capture raw body for unrecognised Content-Types
   app.use('/webhooks', makeWebhookRouter());
   app.use('/webhooks', makeStripeWebhookRouter());
+  app.use('/admin', makeAdminRouter());
   app.use('/', makePublicApiRouter());
   app.use('/', makeCheckoutRouter());
   app.use('/', makePaymentHistoryRouter());

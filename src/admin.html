@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Property Automations</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f7fa;
+      color: #1a1a2e;
+      min-height: 100vh;
+    }
+
+    header {
+      background: #1a1a2e;
+      color: #fff;
+      padding: 20px 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    header .logo { font-size: 28px; }
+    header h1 { margin: 0; font-size: 20px; font-weight: 600; }
+    header small { display: block; color: #aab4d4; font-size: 13px; margin-top: 2px; }
+
+    .container { max-width: 720px; margin: 0 auto; padding: 24px 16px; }
+
+    .section-title {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: #6b7280;
+      margin: 0 0 12px;
+    }
+
+    .card {
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 1px 4px rgba(0,0,0,.08);
+      margin-bottom: 12px;
+      overflow: hidden;
+      transition: box-shadow .15s;
+    }
+    .card:hover { box-shadow: 0 3px 10px rgba(0,0,0,.12); }
+
+    .card-header {
+      display: flex;
+      align-items: flex-start;
+      gap: 16px;
+      padding: 18px 20px 14px;
+    }
+
+    .job-icon {
+      font-size: 28px;
+      line-height: 1;
+      min-width: 36px;
+      text-align: center;
+      margin-top: 2px;
+    }
+
+    .job-info { flex: 1; }
+    .job-title {
+      font-size: 16px;
+      font-weight: 600;
+      margin: 0 0 4px;
+    }
+    .job-desc {
+      font-size: 13px;
+      color: #6b7280;
+      margin: 0;
+      line-height: 1.5;
+    }
+
+    /* Toggle */
+    .toggle-wrap {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    .toggle-label { font-size: 13px; color: #6b7280; white-space: nowrap; }
+    .toggle {
+      position: relative;
+      width: 46px;
+      height: 26px;
+      flex-shrink: 0;
+    }
+    .toggle input { opacity: 0; width: 0; height: 0; }
+    .slider {
+      position: absolute;
+      inset: 0;
+      background: #d1d5db;
+      border-radius: 26px;
+      cursor: pointer;
+      transition: background .2s;
+    }
+    .slider::before {
+      content: '';
+      position: absolute;
+      width: 20px; height: 20px;
+      left: 3px; top: 3px;
+      border-radius: 50%;
+      background: #fff;
+      transition: transform .2s;
+      box-shadow: 0 1px 3px rgba(0,0,0,.2);
+    }
+    input:checked + .slider { background: #4f46e5; }
+    input:checked + .slider::before { transform: translateX(20px); }
+
+    /* Card footer */
+    .card-footer {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 0 20px 16px;
+      flex-wrap: wrap;
+    }
+
+    .time-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .time-label { font-size: 13px; color: #6b7280; }
+    .time-input {
+      font-size: 14px;
+      border: 1px solid #d1d5db;
+      border-radius: 8px;
+      padding: 6px 10px;
+      color: #1a1a2e;
+      background: #f9fafb;
+      cursor: pointer;
+      width: 110px;
+    }
+    .time-input:focus {
+      outline: none;
+      border-color: #4f46e5;
+      background: #fff;
+    }
+
+    .status-badge {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 12px;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-weight: 500;
+    }
+    .status-badge.ok   { background: #d1fae5; color: #065f46; }
+    .status-badge.fail { background: #fee2e2; color: #991b1b; }
+    .status-badge.idle { background: #f3f4f6; color: #6b7280; }
+    .status-badge.running { background: #dbeafe; color: #1e40af; }
+    .status-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+    .status-badge.running .status-dot { animation: pulse 1s infinite; }
+
+    .btn-run {
+      margin-left: auto;
+      background: #4f46e5;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      padding: 8px 16px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background .15s, opacity .15s;
+      white-space: nowrap;
+    }
+    .btn-run:hover   { background: #4338ca; }
+    .btn-run:disabled { opacity: .5; cursor: not-allowed; }
+
+    /* Save bar */
+    .save-bar {
+      position: sticky;
+      bottom: 16px;
+      background: #1a1a2e;
+      color: #fff;
+      border-radius: 12px;
+      padding: 14px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-top: 8px;
+      box-shadow: 0 4px 16px rgba(0,0,0,.25);
+      transition: opacity .2s;
+    }
+    .save-bar.hidden { opacity: 0; pointer-events: none; }
+    .save-bar p { margin: 0; font-size: 14px; }
+    .btn-save {
+      background: #4f46e5;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      padding: 10px 24px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background .15s;
+    }
+    .btn-save:hover { background: #4338ca; }
+
+    /* Toast */
+    #toast {
+      position: fixed;
+      bottom: 80px;
+      left: 50%;
+      transform: translateX(-50%) translateY(20px);
+      background: #1a1a2e;
+      color: #fff;
+      padding: 12px 20px;
+      border-radius: 10px;
+      font-size: 14px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .3s, transform .3s;
+      z-index: 100;
+      max-width: 90vw;
+      text-align: center;
+    }
+    #toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+    #toast.error { background: #dc2626; }
+
+    .last-run-text { font-size: 12px; color: #9ca3af; }
+
+    /* Disabled card */
+    .card.disabled .job-icon,
+    .card.disabled .job-title,
+    .card.disabled .job-desc { opacity: .45; }
+    .card.disabled .card-footer .time-input { pointer-events: none; opacity: .5; }
+    .card.disabled .btn-run { opacity: .5; pointer-events: none; }
+
+    /* Responsive */
+    @media (max-width: 480px) {
+      .card-header { flex-wrap: wrap; }
+      .card-footer { flex-wrap: wrap; }
+      .btn-run { width: 100%; text-align: center; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <span class="logo">🏠</span>
+  <div>
+    <h1>Property Automations</h1>
+    <small>Configure when your automated tasks run</small>
+  </div>
+</header>
+
+<div class="container">
+  <p class="section-title">Scheduled Automations</p>
+  <div id="jobs-list">
+    <!-- Cards rendered by JS -->
+    <p style="color:#6b7280;font-size:14px">Loading automations…</p>
+  </div>
+
+  <div class="save-bar hidden" id="save-bar">
+    <p>⚠️ You have unsaved changes</p>
+    <button class="btn-save" onclick="saveAll()">Save &amp; Apply</button>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ── Config ───────────────────────────────────────────────────────────────────
+
+const ICONS = {
+  overdue_rent:      '🚨',
+  lease_renewal:     '📋',
+  late_fees:         '💸',
+  stale_work_orders: '🔧',
+  weekly_report:     '📊',
+};
+
+let jobs = [];           // current state loaded from API
+let dirty = false;
+
+// ── API helpers ───────────────────────────────────────────────────────────────
+
+async function api(method, path, body) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  const r = await fetch(path, opts);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+// ── Render ────────────────────────────────────────────────────────────────────
+
+function statusBadge(job) {
+  if (job.running) return `<span class="status-badge running"><span class="status-dot"></span>Running…</span>`;
+  if (!job.lastRun) return `<span class="status-badge idle"><span class="status-dot"></span>Never run</span>`;
+  if (job.lastResult?.success) {
+    const ago = timeAgo(job.lastRun);
+    return `<span class="status-badge ok"><span class="status-dot"></span>Ran ${ago}</span>`;
+  }
+  return `<span class="status-badge fail"><span class="status-dot"></span>Failed – ${job.lastResult?.error || '?'}</span>`;
+}
+
+function timeAgo(iso) {
+  if (!iso) return '';
+  const diff = Math.floor((Date.now() - new Date(iso)) / 60000);
+  if (diff < 1)  return 'just now';
+  if (diff < 60) return `${diff}m ago`;
+  if (diff < 1440) return `${Math.floor(diff/60)}h ago`;
+  return `${Math.floor(diff/1440)}d ago`;
+}
+
+function renderJobs(data) {
+  jobs = data;
+  const container = document.getElementById('jobs-list');
+  container.innerHTML = data.map(job => `
+    <div class="card ${job.enabled ? '' : 'disabled'}" id="card-${job.id}">
+      <div class="card-header">
+        <div class="job-icon">${ICONS[job.id] || '⚙️'}</div>
+        <div class="job-info">
+          <p class="job-title">${job.label}</p>
+          <p class="job-desc">${job.description}</p>
+        </div>
+        <div class="toggle-wrap">
+          <span class="toggle-label" id="lbl-${job.id}">${job.enabled ? 'On' : 'Off'}</span>
+          <label class="toggle" title="Enable / disable this automation">
+            <input type="checkbox" id="enabled-${job.id}"
+              ${job.enabled ? 'checked' : ''}
+              onchange="onToggle('${job.id}', this.checked)" />
+            <span class="slider"></span>
+          </label>
+        </div>
+      </div>
+      <div class="card-footer">
+        <div class="time-row">
+          <span class="time-label">⏰ Run at</span>
+          <input class="time-input" type="time" id="time-${job.id}"
+            value="${job.time}"
+            onchange="onTimeChange('${job.id}', this.value)"
+            ${job.weeklyDay !== undefined ? 'title="Every Friday"' : 'title="Daily"'} />
+          ${job.weeklyDay !== undefined ? '<span class="time-label" style="color:#4f46e5;font-weight:600">Every Friday</span>' : ''}
+        </div>
+        ${statusBadge(job)}
+        <button class="btn-run" id="run-${job.id}" onclick="runNow('${job.id}')">
+          ▶ Run Now
+        </button>
+      </div>
+    </div>
+  `).join('');
+}
+
+// ── User interactions ─────────────────────────────────────────────────────────
+
+function onToggle(id, checked) {
+  const job = jobs.find(j => j.id === id);
+  if (!job) return;
+  job.enabled = checked;
+  document.getElementById('card-' + id).classList.toggle('disabled', !checked);
+  document.getElementById('lbl-' + id).textContent = checked ? 'On' : 'Off';
+  markDirty();
+}
+
+function onTimeChange(id, value) {
+  const job = jobs.find(j => j.id === id);
+  if (!job) return;
+  job.time = value;
+  markDirty();
+}
+
+function markDirty() {
+  dirty = true;
+  document.getElementById('save-bar').classList.remove('hidden');
+}
+
+async function saveAll() {
+  const settings = {};
+  for (const job of jobs) {
+    settings[job.id] = { enabled: job.enabled, time: job.time };
+  }
+  try {
+    await api('POST', '/admin/api/scheduler-settings', settings);
+    dirty = false;
+    document.getElementById('save-bar').classList.add('hidden');
+    showToast('✅ Settings saved and scheduler restarted!');
+    // Refresh to show updated cron info
+    setTimeout(loadJobs, 1000);
+  } catch (err) {
+    showToast('❌ Failed to save: ' + err.message, true);
+  }
+}
+
+async function runNow(id) {
+  const btn = document.getElementById('run-' + id);
+  const job = jobs.find(j => j.id === id);
+  if (!job) return;
+
+  btn.disabled = true;
+  btn.textContent = '⏳ Running…';
+
+  // Mark as running in UI immediately
+  job.running = true;
+  refreshCard(job);
+
+  try {
+    const result = await api('POST', '/admin/api/run-job/' + id, {});
+    job.running = false;
+    job.lastRun = new Date().toISOString();
+    job.lastResult = result;
+    refreshCard(job);
+    showToast(result.success
+      ? `✅ ${job.label} completed (${result.ms}ms)`
+      : `❌ ${job.label} failed: ${result.error}`
+    , !result.success);
+  } catch (err) {
+    job.running = false;
+    job.lastRun = new Date().toISOString();
+    job.lastResult = { success: false, error: err.message };
+    refreshCard(job);
+    showToast('❌ ' + err.message, true);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '▶ Run Now';
+  }
+}
+
+function refreshCard(updatedJob) {
+  // Re-render just the status badge area without re-rendering the whole list
+  const card = document.getElementById('card-' + updatedJob.id);
+  if (!card) return;
+  const footer = card.querySelector('.card-footer');
+  if (!footer) return;
+
+  // Remove old status badge
+  footer.querySelectorAll('.status-badge').forEach(el => el.remove());
+
+  // Insert before btn-run
+  const btn = footer.querySelector('.btn-run');
+  const badge = document.createElement('div');
+  badge.innerHTML = statusBadge(updatedJob);
+  if (btn) footer.insertBefore(badge.firstElementChild, btn);
+  else footer.appendChild(badge.firstElementChild);
+}
+
+// ── Toast ─────────────────────────────────────────────────────────────────────
+
+function showToast(msg, isError = false) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'show' + (isError ? ' error' : '');
+  clearTimeout(el._timer);
+  el._timer = setTimeout(() => { el.className = ''; }, 3500);
+}
+
+// ── Load ──────────────────────────────────────────────────────────────────────
+
+async function loadJobs() {
+  try {
+    const data = await api('GET', '/admin/api/scheduler-status');
+    renderJobs(data);
+  } catch (err) {
+    document.getElementById('jobs-list').innerHTML =
+      `<p style="color:#dc2626;font-size:14px">⚠️ Could not load automations: ${err.message}</p>`;
+  }
+}
+
+loadJobs();
+
+// Auto-refresh running state every 10 seconds
+setInterval(async () => {
+  if (dirty) return; // don't refresh during unsaved edits
+  try {
+    const data = await api('GET', '/admin/api/scheduler-status');
+    // Merge fresh status without disrupting UI state
+    for (const fresh of data) {
+      const local = jobs.find(j => j.id === fresh.id);
+      if (!local) continue;
+      local.running    = fresh.running;
+      local.lastRun    = fresh.lastRun;
+      local.lastResult = fresh.lastResult;
+      refreshCard(local);
+    }
+  } catch (_) { /* silent */ }
+}, 10000);
+</script>
+</body>
+</html>
