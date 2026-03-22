@@ -33,9 +33,13 @@ async function main() {
   const { createBot, stopBot } = require('./telegram/bot');
   createBot();
 
+  // ── 4. In-process cron scheduler ─────────────────────────────────────────────
+  const { startScheduler } = require('./automation/cron');
+  startScheduler();
+
   logger.info('Unified Landlord Center started', {
     webhookPort: port,
-    note: 'Scheduling and SMS notifications handled by ERPNext Server Scripts',
+    adminUi: `http://localhost:${port}/admin`,
   });
 
   // ── Graceful shutdown ────────────────────────────────────────────────────────
