@@ -452,3 +452,135 @@ describe('GET /api/properties-for-apply', () => {
     expect(res.headers['access-control-allow-origin']).toBe('*');
   });
 });
+
+// ─── POST /webhooks/twilio/inbound ───────────────────────────────────────────
+
+describe('POST /webhooks/twilio/inbound', () => {
+  const { createWebhookApp } = require('../src/webhook/server');
+  const apiMock = require('../src/api/index');
+
+  // Helper: build a valid Twilio signature for a given URL + params
+  function buildTwilioSig(authToken, url, params) {
+    const sortedKeys = Object.keys(params).sort();
+    const sigInput   = url + sortedKeys.map(k => `${k}${params[k]}`).join('');
+    return crypto.createHmac('sha1', authToken).update(sigInput).digest('base64');
+  }
+
+  const TEST_TOKEN = 'test_auth_token';
+  const INBOUND_URL = 'http://127.0.0.1/webhooks/twilio/inbound';
+
+  beforeEach(() => {
+    delete process.env.TWILIO_AUTH_TOKEN;
+  });
+
+  test('returns 200 with empty TwiML when no auth token configured', async () => {
+    const localApp = createWebhookApp();
+    apiMock.getTenants.mockResolvedValueOnce([]);
+
+    const res = await supertest(localApp)
+      .post('/webhooks/twilio/inbound')
+      .type('form')
+      .send({ From: '+13363036205', To: '+15005550006', Body: 'Hello' });
+
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/text\/xml/);
+    expect(res.text).toBe('<Response/>');
+  });
+
+  test('rejects request with missing signature when auth token is set', async () => {
+    process.env.TWILIO_AUTH_TOKEN = TEST_TOKEN;
+    const localApp = createWebhookApp();
+
+    const res = await supertest(localApp)
+      .post('/webhooks/twilio/inbound')
+      .type('form')
+      .send({ From: '+13363036205', Body: 'Hello' });
+
+    expect(res.status).toBe(403);
+    delete process.env.TWILIO_AUTH_TOKEN;
+  });
+
+  test('rejects request with wrong signature when auth token is set', async () => {
+    process.env.TWILIO_AUTH_TOKEN = TEST_TOKEN;
+    const localApp = createWebhookApp();
+
+    const res = await supertest(localApp)
+      .post('/webhooks/twilio/inbound')
+      .set('X-Twilio-Signature', 'invalidsignature')
+      .type('form')
+      .send({ From: '+13363036205', Body: 'Hello' });
+
+    expect(res.status).toBe(403);
+    delete process.env.TWILIO_AUTH_TOKEN;
+  });
+
+  test('accepts valid signature and forwards message to Telegram', async () => {
+    const params = { From: '+13363036205', To: '+15005550006', Body: 'Hi there' };
+    const sig    = buildTwilioSig(TEST_TOKEN, INBOUND_URL, params);
+    process.env.TWILIO_AUTH_TOKEN = TEST_TOKEN;
+    const localApp = createWebhookApp();
+
+    apiMock.getTenants.mockResolvedValueOnce([
+      { customer_name: 'Marica Garcia', mobile_no: '+13363036205', custom_unit: 'Unit 4B' },
+    ]);
+
+    const res = await supertest(localApp)
+      .post('/webhooks/twilio/inbound')
+      .set('X-Twilio-Signature', sig)
+      .set('Host', '127.0.0.1')
+      .type('form')
+      .send(params);
+
+    expect(res.status).toBe(200);
+    expect(res.text).toBe('<Response/>');
+
+    // Give setImmediate a chance to run
+    await new Promise(r => setImmediate(r));
+
+    expect(mockNotify).toHaveBeenCalledWith(
+      expect.stringContaining('Marica Garcia')
+    );
+    expect(mockNotify).toHaveBeenCalledWith(
+      expect.stringContaining('Unit 4B')
+    );
+    expect(mockNotify).toHaveBeenCalledWith(
+      expect.stringContaining('Hi there')
+    );
+
+    delete process.env.TWILIO_AUTH_TOKEN;
+  });
+
+  test('forwards with raw phone number when tenant not found in ERPNext', async () => {
+    apiMock.getTenants.mockResolvedValueOnce([]);
+    const localApp = createWebhookApp();
+
+    const res = await supertest(localApp)
+      .post('/webhooks/twilio/inbound')
+      .type('form')
+      .send({ From: '+19995550001', Body: 'Unknown caller' });
+
+    expect(res.status).toBe(200);
+    await new Promise(r => setImmediate(r));
+
+    expect(mockNotify).toHaveBeenCalledWith(
+      expect.stringContaining('+19995550001')
+    );
+    expect(mockNotify).toHaveBeenCalledWith(
+      expect.stringContaining('Unknown caller')
+    );
+  });
+
+  test('returns empty TwiML and skips notify when Body is empty', async () => {
+    const localApp = createWebhookApp();
+
+    const res = await supertest(localApp)
+      .post('/webhooks/twilio/inbound')
+      .type('form')
+      .send({ From: '+13363036205', Body: '' });
+
+    expect(res.status).toBe(200);
+    expect(res.text).toBe('<Response/>');
+    await new Promise(r => setImmediate(r));
+    expect(mockNotify).not.toHaveBeenCalled();
+  });
+});

@@ -15,6 +15,7 @@
  *   POST /webhooks/dropbox-sign/completed          – (removed — replaced by BoldSign)
  *   POST /webhooks/boldsign/completed              – BoldSign "all signed" event → lease.signed
  *   POST /webhooks/smartmove/completed             – SmartMove screening done → notify landlord
+ *   POST /webhooks/twilio/inbound                  – Twilio inbound SMS → forward to Telegram
  */
 
 const express = require('express');
@@ -407,6 +408,104 @@ function makeWebhookRouter() {
     setImmediate(() => handleSmartMoveCompleted(d).catch(err =>
       logger.error('SmartMove completed handler error', { error: err.message })
     ));
+  });
+
+  // ── Twilio: inbound SMS from a tenant ────────────────────────────────────────
+  //
+  // Twilio POSTs URL-encoded fields when a tenant sends an SMS to our number:
+  //   From   – sender's E.164 phone number
+  //   To     – our Twilio number
+  //   Body   – the message text
+  //   MessageSid, AccountSid, etc. (also provided)
+  //
+  // Signature validation:
+  //   X-Twilio-Signature: base64(HMAC-SHA1(TWILIO_AUTH_TOKEN, url + sortedParams))
+  //
+  // On success the route returns an empty TwiML <Response/> so Twilio does not
+  // send an automatic reply.
+  router.post('/twilio/inbound', async (req, res) => {
+    const authToken = process.env.TWILIO_AUTH_TOKEN || '';
+
+    // ── Validate Twilio signature ─────────────────────────────────────────────
+    if (authToken) {
+      const twilioSig = req.headers['x-twilio-signature'] || '';
+      if (!twilioSig) {
+        logger.warn('Twilio inbound: missing X-Twilio-Signature header');
+        return res.status(403).send('Forbidden');
+      }
+
+      // Reconstruct the full URL Twilio signed (honour X-Forwarded-Proto for proxies)
+      const proto = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+      const host  = req.headers['x-forwarded-host']  || req.get('host') || '';
+      const fullUrl = `${proto}://${host}${req.originalUrl}`;
+
+      // Build the string-to-sign: URL followed by sorted param key+value pairs
+      const params     = req.body || {};
+      const sortedKeys = Object.keys(params).sort();
+      const paramStr   = sortedKeys.map(k => `${k}${params[k]}`).join('');
+      const sigInput   = fullUrl + paramStr;
+
+      const expected = crypto
+        .createHmac('sha1', authToken)
+        .update(Buffer.from(sigInput, 'utf-8'))
+        .digest('base64');
+
+      if (twilioSig !== expected) {
+        logger.warn('Twilio inbound: invalid signature', { fullUrl });
+        return res.status(403).send('Forbidden');
+      }
+    }
+
+    const from = (req.body?.From || '').trim();
+    const body = (req.body?.Body || '').trim();
+
+    logger.info('Twilio inbound SMS received', { from });
+
+    if (!from || !body) {
+      res.set('Content-Type', 'text/xml');
+      return res.send('<Response/>');
+    }
+
+    // ── Identify tenant by phone number ──────────────────────────────────────
+    setImmediate(async () => {
+      try {
+        const api = require('../api/index');
+        const { notifyLandlord } = require('../telegram/bot');
+
+        // Normalise both numbers to digits-only for comparison
+        const normalise = n => n.replace(/\D/g, '');
+        const fromNorm  = normalise(from);
+
+        let tenantLabel = from; // fallback: just show the phone number
+        let unitLabel   = '';
+
+        try {
+          const tenants = await api.getTenants({});
+          const match   = tenants.find(t => t.mobile_no && normalise(t.mobile_no) === fromNorm);
+          if (match) {
+            tenantLabel = match.customer_name || from;
+            unitLabel   = match.custom_unit   || '';
+            logger.info('Twilio inbound: matched tenant', { tenant: tenantLabel, unit: unitLabel });
+          } else {
+            logger.warn('Twilio inbound: no tenant matched phone number', { from });
+          }
+        } catch (err) {
+          logger.error('Twilio inbound: ERPNext lookup failed', { error: err.message });
+        }
+
+        const unitSuffix = unitLabel ? ` (${unitLabel})` : '';
+        const message    = `📱 SMS from ${tenantLabel}${unitSuffix}:\n"${body}"`;
+
+        await notifyLandlord(message);
+        logger.info('Twilio inbound: forwarded to Telegram', { from, tenant: tenantLabel });
+      } catch (err) {
+        logger.error('Twilio inbound: failed to forward to Telegram', { error: err.message });
+      }
+    });
+
+    // Respond immediately with empty TwiML to suppress Twilio auto-reply
+    res.set('Content-Type', 'text/xml');
+    res.send('<Response/>');
   });
 
   return router;
