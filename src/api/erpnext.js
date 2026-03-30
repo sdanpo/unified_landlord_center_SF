@@ -497,22 +497,38 @@ class ERPNextClient {
 
   /**
    * List maintenance tickets.
+   *
+   * Uses frappe.client.get_list instead of /api/resource/HD Ticket to bypass
+   * the frappe-helpdesk module's get_list hook, which applies team/agent
+   * visibility filters and hides landlord-created tickets from results.
+   *
    * @param {Object} [params]
    * @param {string} [params.status]     – "open"|"in_progress"|"completed"|"all"
    * @param {string} [params.propertyId] – filter by customer field (property/tenant)
    * @param {string} [params.unitId]     – partial subject match
    */
   async getWorkOrders({ status, propertyId, unitId } = {}) {
-    // Frappe v15 rejects status/customer/subject as filter fields on HD Ticket.
-    // Fetch all tickets and filter client-side.
-    const all = await this._list('HD Ticket', {
-      fields: [
-        'name', 'subject', 'status', 'priority',
-        'customer', 'raised_by',
-        'description', 'creation', 'modified',
-      ],
-      orderBy: 'creation desc',
-    });
+    // frappe.client.get_list bypasses the helpdesk module's get_list hook so
+    // all tickets (including those created by the landlord via the bot) are visible.
+    let all;
+    try {
+      const { data } = await this.http.post('/api/method/frappe.client.get_list', {
+        doctype:           'HD Ticket',
+        fields:            JSON.stringify(['name', 'subject', 'status', 'priority', 'customer', 'raised_by', 'description', 'creation', 'modified']),
+        filters:           JSON.stringify([]),
+        limit_page_length: 500,
+        order_by:          'creation desc',
+      });
+      all = data.message || [];
+      logger.info('getWorkOrders via frappe.client.get_list', { count: all.length });
+    } catch (err) {
+      // Fall back to standard list API
+      logger.warn('frappe.client.get_list failed for HD Ticket, falling back to resource API', { error: err.message });
+      all = await this._list('HD Ticket', {
+        fields:   ['name', 'subject', 'status', 'priority', 'customer', 'raised_by', 'description', 'creation', 'modified'],
+        orderBy:  'creation desc',
+      });
+    }
 
     const statusMap = { open: 'Open', in_progress: 'Replied', completed: 'Resolved' };
     const wantedStatus = statusMap[status] || status;
@@ -589,7 +605,19 @@ class ERPNextClient {
     };
 
     logger.info('Creating HD Ticket work order', { subject, priority, customer, customUnit });
-    return this._post('HD Ticket', payload);
+    const ticket = await this._post('HD Ticket', payload);
+
+    // frappe-helpdesk ignores the status field on POST (same behaviour documented
+    // in seed-erpnext.js).  Explicitly PUT the status so the ticket is immediately
+    // visible when listing with status = 'Open'.
+    try {
+      await this._put('HD Ticket', ticket.name, { status: priority === 'Urgent' ? 'Open' : 'Open' });
+      logger.info('HD Ticket status confirmed Open', { name: ticket.name });
+    } catch (putErr) {
+      logger.warn('Could not force status on new HD Ticket', { name: ticket.name, error: putErr.message });
+    }
+
+    return ticket;
   }
 
   /**

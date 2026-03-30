@@ -32,25 +32,34 @@ function buildClient() {
 }
 
 describe('ERPNextClient.createWorkOrder()', () => {
-  it('POST /api/resource/HD Ticket with required subject', async () => {
+  it('POST creates ticket then PUTs status=Open (frappe-helpdesk ignores status on creation)', async () => {
     const { client, mockHttp } = buildClient();
     const created = { name: 'HD-TICKET-0099', subject: 'Broken dishwasher', status: 'Open', priority: 'Medium' };
     mockHttp.post = jest.fn().mockResolvedValue({ data: { data: created } });
+    mockHttp.put  = jest.fn().mockResolvedValue({ data: { data: { ...created } } });
 
     const result = await client.createWorkOrder({ subject: 'Broken dishwasher' });
 
+    // POST to create
     expect(mockHttp.post).toHaveBeenCalledTimes(1);
-    const [url, payload] = mockHttp.post.mock.calls[0];
-    expect(url).toContain('HD%20Ticket');
-    expect(payload.subject).toBe('Broken dishwasher');
-    expect(payload.priority).toBe('Medium'); // default
+    const [postUrl, postPayload] = mockHttp.post.mock.calls[0];
+    expect(postUrl).toContain('HD%20Ticket');
+    expect(postPayload.subject).toBe('Broken dishwasher');
+    expect(postPayload.priority).toBe('Medium');
     expect(result.name).toBe('HD-TICKET-0099');
+
+    // Follow-up PUT to force status = Open
+    expect(mockHttp.put).toHaveBeenCalledTimes(1);
+    const [putUrl, putPayload] = mockHttp.put.mock.calls[0];
+    expect(putUrl).toContain('HD-TICKET-0099');
+    expect(putPayload.status).toBe('Open');
   });
 
   it('includes all optional fields when provided', async () => {
     const { client, mockHttp } = buildClient();
     const created = { name: 'HD-TICKET-0100', subject: 'HVAC issue', status: 'Open', priority: 'Urgent' };
     mockHttp.post = jest.fn().mockResolvedValue({ data: { data: created } });
+    mockHttp.put  = jest.fn().mockResolvedValue({ data: { data: created } });
 
     await client.createWorkOrder({
       subject:        'HVAC issue',
@@ -71,10 +80,54 @@ describe('ERPNextClient.createWorkOrder()', () => {
     expect(payload.custom_property).toBe('Oak Street Property');
   });
 
+  it('still returns ticket even if the follow-up status PUT fails', async () => {
+    const { client, mockHttp } = buildClient();
+    const created = { name: 'HD-TICKET-0101', subject: 'Pest issue', status: 'Open', priority: 'Medium' };
+    mockHttp.post = jest.fn().mockResolvedValue({ data: { data: created } });
+    mockHttp.put  = jest.fn().mockRejectedValue(new Error('PUT failed'));
+
+    // Should not throw – PUT failure is non-fatal
+    const result = await client.createWorkOrder({ subject: 'Pest issue' });
+    expect(result.name).toBe('HD-TICKET-0101');
+  });
+
   it('throws when subject is missing', async () => {
     const { client } = buildClient();
     await expect(client.createWorkOrder({ description: 'No subject' }))
       .rejects.toThrow('subject is required');
+  });
+});
+
+describe('ERPNextClient.getWorkOrders() – frappe.client.get_list', () => {
+  it('uses POST frappe.client.get_list and returns all tickets', async () => {
+    const { client, mockHttp } = buildClient();
+    const tickets = [
+      { name: 'HD-TICKET-0001', subject: 'Heater broken', status: 'Open',     priority: 'High' },
+      { name: 'HD-TICKET-0006', subject: 'Leaking faucet', status: 'Open',    priority: 'Medium' },
+    ];
+    mockHttp.post = jest.fn().mockResolvedValue({ data: { message: tickets } });
+
+    const result = await client.getWorkOrders({ status: 'open' });
+
+    expect(mockHttp.post).toHaveBeenCalledTimes(1);
+    const [url] = mockHttp.post.mock.calls[0];
+    expect(url).toContain('frappe.client.get_list');
+    expect(result).toHaveLength(2);
+    expect(result.map(t => t.name)).toContain('HD-TICKET-0006');
+  });
+
+  it('falls back to resource API when frappe.client.get_list fails', async () => {
+    const { client, mockHttp } = buildClient();
+    const tickets = [
+      { name: 'HD-TICKET-0001', subject: 'Heater', status: 'Open', priority: 'High' },
+    ];
+    // First call (frappe.client.get_list) fails; second call (resource API) succeeds
+    mockHttp.post = jest.fn().mockRejectedValue(new Error('method not found'));
+    mockHttp.get  = jest.fn().mockResolvedValue({ data: { data: tickets } });
+
+    const result = await client.getWorkOrders({});
+    expect(result).toHaveLength(1);
+    expect(mockHttp.get).toHaveBeenCalledTimes(1);
   });
 });
 
