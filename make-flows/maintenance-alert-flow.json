@@ -7,7 +7,7 @@
       "version": 3,
       "parameters": { "handleErrors": false, "useNewZLibDecompression": true },
       "mapper": {
-        "url": "YOUR_ERPNEXT_BASE_URL/api/resource/Issue",
+        "url": "YOUR_ERPNEXT_BASE_URL/api/resource/HD%20Ticket",
         "serializeUrl": false,
         "method": "get",
         "headers": [
@@ -16,7 +16,7 @@
         ],
         "qs": [
           { "key": "filters", "value": "[[\"status\",\"in\",[\"Open\",\"Replied\"]],[\"creation\",\"<\",\"{{formatDate(addHours(now; -48); 'YYYY-MM-DD HH:mm:ss')}}\"]]" },
-          { "key": "fields",  "value": "[\"name\",\"subject\",\"status\",\"priority\",\"customer_name\",\"custom_unit\",\"custom_property\",\"creation\"]" },
+          { "key": "fields",  "value": "[\"name\",\"subject\",\"status\",\"priority\",\"customer\",\"custom_unit\",\"custom_property\",\"creation\"]" },
           { "key": "limit_page_length", "value": "500" },
           { "key": "order_by", "value": "creation asc" }
         ],
@@ -59,7 +59,7 @@
               "version": 1,
               "parameters": { "feeder": 3, "rowSeparator": "\n\n" },
               "mapper": {
-                "value": "• *{{3.name}}* – Unit {{3.custom_unit}}\n  Issue: {{3.subject}}\n  Tenant: {{3.customer_name}}\n  Priority: {{3.priority}}\n  Open for: {{round(dateDiff(parseDate(3.creation; 'YYYY-MM-DD HH:mm:ss'); now; 'hours'))}} hours\n  Status: {{3.status}}"
+                "value": "• *{{3.name}}* – Unit {{3.custom_unit}}\n  Issue: {{3.subject}}\n  Tenant: {{3.customer}}\n  Priority: {{3.priority}}\n  Open for: {{round(dateDiff(parseDate(3.creation; 'YYYY-MM-DD HH:mm:ss'); now; 'hours'))}} hours\n  Status: {{3.status}}"
               },
               "metadata": {
                 "designer": { "x": 900, "y": -150 },
