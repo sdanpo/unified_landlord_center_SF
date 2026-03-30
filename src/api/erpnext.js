@@ -556,6 +556,43 @@ class ERPNextClient {
   }
 
   /**
+   * Create a new HD Ticket (maintenance work order).
+   * @param {Object} p
+   * @param {string} p.subject           – Short description of the issue (required)
+   * @param {string} [p.description]     – Detailed notes
+   * @param {string} [p.priority]        – "Urgent" | "High" | "Medium" | "Low" (default: "Medium")
+   * @param {string} [p.customer]        – ERPNext Customer name (tenant) to link the ticket to
+   * @param {string} [p.raisedBy]        – Email of the person reporting (defaults to landlord email)
+   * @param {string} [p.customUnit]      – Unit address / identifier
+   * @param {string} [p.customProperty]  – Property name
+   * @returns {Promise<Object>}          – Created HD Ticket document
+   */
+  async createWorkOrder({
+    subject,
+    description = '',
+    priority = 'Medium',
+    customer,
+    raisedBy,
+    customUnit,
+    customProperty,
+  }) {
+    if (!subject) throw new Error('subject is required to create a work order');
+
+    const payload = {
+      subject,
+      ...(description    ? { description }                : {}),
+      ...(priority       ? { priority }                   : {}),
+      ...(customer       ? { customer }                   : {}),
+      ...(raisedBy       ? { raised_by: raisedBy }        : {}),
+      ...(customUnit     ? { custom_unit: customUnit }     : {}),
+      ...(customProperty ? { custom_property: customProperty } : {}),
+    };
+
+    logger.info('Creating HD Ticket work order', { subject, priority, customer, customUnit });
+    return this._post('HD Ticket', payload);
+  }
+
+  /**
    * Update an HD Ticket.
    * @param {string} name
    * @param {Object} payload

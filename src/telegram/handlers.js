@@ -45,7 +45,7 @@ async function handleStart(bot, msg) {
     `👋 Hi ${name}! I'm your property management AI assistant.\n\n` +
       `I can answer real-time questions about your portfolio, including:\n` +
       `• Outstanding rent balances\n` +
-      `• Maintenance work orders\n` +
+      `• Maintenance work orders – open, update, or close tickets\n` +
       `• Lease status and expirations\n` +
       `• Vacant units\n` +
       `• Financial summaries\n\n` +
@@ -66,7 +66,11 @@ async function handleHelp(bot, msg) {
       `🔧 *Maintenance*\n` +
       `• "What maintenance tickets have been open for more than 3 days?"\n` +
       `• "What is the status of the plumbing issue in Unit 4B?"\n` +
-      `• "List all open work orders."\n\n` +
+      `• "List all open work orders."\n` +
+      `• "Open a ticket for Unit 3A – broken dishwasher, high priority"\n` +
+      `• "Create a maintenance request for the HVAC at Oak Street"\n` +
+      `• "Mark HD-TICKET-0042 as resolved"\n` +
+      `• "Close the plumbing ticket and add a note: fixed by vendor"\n\n` +
       `🏠 *Leases & Tenants*\n` +
       `• "Which units are vacant right now?"\n` +
       `• "When does the lease for 123 Maple St expire?"\n` +

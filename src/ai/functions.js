@@ -267,6 +267,78 @@ const tools = [
   {
     type: 'function',
     function: {
+      name: 'create_work_order',
+      description:
+        'Create a new maintenance work order (HD Ticket) in the system. ' +
+        'Use this when the landlord reports a new issue or asks to open a ticket for a unit. ' +
+        'Examples: "open a ticket for Unit 3A – broken dishwasher", ' +
+        '"create a maintenance request for the HVAC at Oak Street".',
+      parameters: {
+        type: 'object',
+        properties: {
+          subject: {
+            type: 'string',
+            description: 'Short, clear description of the issue (e.g. "Broken dishwasher – Unit 3A").',
+          },
+          description: {
+            type: 'string',
+            description: 'Optional detailed notes about the issue.',
+          },
+          priority: {
+            type: 'string',
+            enum: ['Urgent', 'High', 'Medium', 'Low'],
+            description: 'Ticket priority. Defaults to "Medium".',
+          },
+          tenantName: {
+            type: 'string',
+            description: 'Optional: full or partial tenant name to link the ticket to the correct customer record.',
+          },
+          unit: {
+            type: 'string',
+            description: 'Optional: unit identifier or address fragment (e.g. "Unit 3A", "Oak Street").',
+          },
+        },
+        required: ['subject'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_work_order',
+      description:
+        'Update the status or details of an existing maintenance work order (HD Ticket). ' +
+        'Use this when the landlord wants to close, resolve, or change the priority/notes on a ticket. ' +
+        'Examples: "mark HD-TICKET-0042 as resolved", "close the plumbing ticket", "set ticket 12 to urgent".',
+      parameters: {
+        type: 'object',
+        properties: {
+          ticketName: {
+            type: 'string',
+            description: 'HD Ticket document name (e.g. "HD-TICKET-0042").',
+          },
+          status: {
+            type: 'string',
+            enum: ['Open', 'Replied', 'Resolved', 'Closed'],
+            description: 'New status for the ticket.',
+          },
+          priority: {
+            type: 'string',
+            enum: ['Urgent', 'High', 'Medium', 'Low'],
+            description: 'New priority for the ticket.',
+          },
+          description: {
+            type: 'string',
+            description: 'Additional notes or resolution details to set on the ticket.',
+          },
+        },
+        required: ['ticketName'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'get_applicants',
       description:
         'List rental applicants from the application pipeline.  ' +

@@ -71,6 +71,8 @@ You have real-time access to the property management database and can answer que
 - Sending leases for e-signature via BoldSign (send_lease_for_signature)
 - Sending screening invitations to rental applicants via SmartMove (send_screening_invite)
 - Viewing the rental applicant pipeline (get_applicants)
+- Opening new maintenance work orders (create_work_order)
+- Updating/closing existing work orders (update_work_order)
 
 Always provide concise, actionable answers formatted for a Telegram chat.
 Use plain currency formatting ($1,234.56), clear unit identifiers, and bullet points for lists.
@@ -272,6 +274,67 @@ async function executeTool(toolCall) {
 
     case 'get_applicants':
       return pmsClient.getCRMLeads(args.status ? { status: args.status } : {});
+
+    case 'create_work_order': {
+      // Resolve tenant customer record if a name was provided
+      let customer;
+      let customUnit = args.unit || undefined;
+      let customProperty;
+
+      if (args.tenantName) {
+        const tenants = await pmsClient.getTenants({ name: args.tenantName });
+        if (tenants.length) {
+          customer = tenants[0].name;
+          // Pull unit / property from tenant record if not explicitly stated
+          if (!customUnit && tenants[0].custom_unit) customUnit = tenants[0].custom_unit;
+          if (tenants[0].custom_property) customProperty = tenants[0].custom_property;
+        }
+      }
+
+      const ticket = await pmsClient.createWorkOrder({
+        subject:        args.subject,
+        description:    args.description   || '',
+        priority:       args.priority      || 'Medium',
+        customer,
+        raisedBy:       process.env.LANDLORD_EMAIL || '',
+        customUnit,
+        customProperty,
+      });
+
+      logger.info('Work order created via Telegram', { ticketName: ticket.name, subject: args.subject });
+
+      return {
+        created:    true,
+        ticketName: ticket.name,
+        subject:    ticket.subject,
+        priority:   ticket.priority,
+        status:     ticket.status,
+        customer:   ticket.customer || null,
+        unit:       ticket.custom_unit || customUnit || null,
+      };
+    }
+
+    case 'update_work_order': {
+      const updatePayload = {};
+      if (args.status)      updatePayload.status      = args.status;
+      if (args.priority)    updatePayload.priority    = args.priority;
+      if (args.description) updatePayload.description = args.description;
+
+      if (!Object.keys(updatePayload).length) {
+        throw new Error('No fields to update were provided for the work order.');
+      }
+
+      const updated = await pmsClient.updateWorkOrder(args.ticketName, updatePayload);
+
+      logger.info('Work order updated via Telegram', { ticketName: args.ticketName, updatePayload });
+
+      return {
+        updated:    true,
+        ticketName: args.ticketName,
+        changes:    updatePayload,
+        newStatus:  updated?.status || updatePayload.status || null,
+      };
+    }
 
     default:
       throw new Error(`Unknown tool: ${name}`);
