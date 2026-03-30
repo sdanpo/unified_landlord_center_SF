@@ -341,6 +341,40 @@ async function executeTool(toolCall) {
   }
 }
 
+// ─── Retry helper ─────────────────────────────────────────────────────────────
+
+/**
+ * Call an async function with exponential-backoff retry on transient errors
+ * (HTTP 429, 500, 502, 503, 504, ETIMEDOUT, ECONNRESET).
+ *
+ * @param {Function} fn        – Async function to call (no arguments)
+ * @param {number}   maxTries  – Total attempts including the first (default 4)
+ * @returns {*} Result of fn()
+ */
+async function withRetry(fn, maxTries = 4) {
+  let lastErr;
+  for (let attempt = 1; attempt <= maxTries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const status = err?.status || err?.response?.status;
+      const code   = err?.code;
+      const isTransient =
+        [429, 500, 502, 503, 504].includes(status) ||
+        ['ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED', 'EAI_AGAIN'].includes(code) ||
+        (err.message || '').toLowerCase().includes('timeout');
+
+      if (!isTransient || attempt === maxTries) throw err;
+
+      const delayMs = Math.min(1000 * 2 ** (attempt - 1), 16_000); // 1s, 2s, 4s, 8s …
+      logger.warn('OpenAI transient error – retrying', { attempt, maxTries, delayMs, error: err.message });
+      await new Promise(r => setTimeout(r, delayMs));
+      lastErr = err;
+    }
+  }
+  throw lastErr;
+}
+
 // ─── Agentic loop ─────────────────────────────────────────────────────────────
 
 /**
@@ -368,12 +402,14 @@ async function chat(userMessage, history = []) {
   while (iterations < MAX_ITERATIONS) {
     iterations++;
 
-    const response = await openai.chat.completions.create({
-      model: config.openai.model,
-      messages,
-      tools,
-      tool_choice: 'auto',
-    });
+    const response = await withRetry(() =>
+      openai.chat.completions.create({
+        model: config.openai.model,
+        messages,
+        tools,
+        tool_choice: 'auto',
+      })
+    );
 
     const choice = response.choices[0];
     const assistantMsg = choice.message;
