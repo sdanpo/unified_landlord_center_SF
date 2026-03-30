@@ -78,23 +78,24 @@ single-family home you rent out as one unit, follow these steps.
    | Field | What to enter |
    |---|---|
    | **Property Name** | A short nickname, e.g. "123 Oak Street" |
-   | **Address Line 1** | Street address |
+   | **Street Address** | Street address |
    | **City** | City |
-   | **State** | State (e.g. CA) |
+   | **State** | State (e.g. OH or NC) |
    | **ZIP Code** | ZIP code |
-   | **Property Type** | Select "Residential" |
-   | **Number of Units** | Enter `1` for a single-family home |
+   | **Bedrooms** | Number of bedrooms |
+   | **Rent** | Monthly rent amount |
+   | **Status** | Available |
 
 4. **Save**
    - Click **Save** (top left or Ctrl+S)
    - Your property is now in the system
 
-5. **Create a Unit for this property**
-   - Even for a single-family home, ERPNext needs a "Unit" record linked to the property
-   - In the same Property record, scroll down to the **Units** table
-   - Click **Add Row**
-   - Enter a unit name (e.g. "Main Unit" or just the address again)
-   - Save again
+5. **Create a Unit record linked to this property**
+   - In PropMS, even a single-family home needs its own "unit" Property record
+   - Go to **PropMS → Property → New**
+   - Fill in the unit details and set **Parent Property** to the property you just saved
+   - Enter a property name (e.g. "123 Oak Street – Main Unit")
+   - Save
 
 > **Tip:** You can also ask the Telegram bot: *"Show me all my properties"* to
 > confirm it appears.
@@ -113,50 +114,48 @@ and then add each unit inside it.
 
 2. **Open PropMS → Property** and click **New**
 
-3. **Fill in the property details**
+3. **Fill in the building details**
 
    | Field | What to enter |
    |---|---|
    | **Property Name** | e.g. "456 Maple Ave" |
-   | **Address Line 1** | Street address of the building |
-   | **City / State / ZIP** | Building's location |
-   | **Property Type** | Select "Multi-Unit Residential" |
-   | **Number of Units** | Total number of units in the building (e.g. 8) |
+   | **Street Address** | Street address of the building |
+   | **City** | City |
+   | **State** | State (e.g. OH or NC) |
+   | **ZIP Code** | ZIP code |
+   | **Status** | Available |
 
-4. **Save the property** (click Save)
+4. **Save the property** (click Save) — this is the parent building record
 
-5. **Add each unit**
+5. **Add each unit as a separate Property record**
 
-   In the **Units** table at the bottom of the Property record, add one row
-   per unit:
+   In PropMS, units are individual Property records linked to the parent building
+   via the **Parent Property** field. For each unit:
 
-   - Click **Add Row** for each unit
+   - Go to **PropMS → Property → New**
    - Fill in:
 
    | Field | What to enter |
    |---|---|
-   | **Unit Name** | e.g. "Unit 1A", "Unit 2B", "Apt 301" |
-   | **Floor** | Floor number (optional) |
+   | **Property Name** | e.g. "456 Maple Ave – Unit 1A" |
+   | **Parent Property** | Select the building you just saved |
    | **Bedrooms** | Number of bedrooms |
-   | **Bathrooms** | Number of bathrooms |
-   | **Square Footage** | Size in sq ft (optional but helpful) |
-   | **Market Rent** | The monthly rent you charge for this unit |
+   | **Rent** | Monthly rent for this unit |
+   | **Status** | Available |
 
-   Repeat for every unit in the building.
-
-6. **Save the property record**
-
-   All units are now in the system and ready for tenants and leases.
+   Click **Save**. Repeat for every unit in the building.
 
 ### Example: Setting up a 4-plex
 
 For a building at "789 Pine St" with units 1A, 1B, 2A, 2B:
 
-- Property Name: `789 Pine St`
-- Number of Units: `4`
-- Units table: add rows for `Unit 1A`, `Unit 1B`, `Unit 2A`, `Unit 2B`
-- Set the Market Rent for each unit (they can be different amounts)
-- Save
+1. Create the building: Property Name = `789 Pine St`, save it
+2. Create four Property records, each with **Parent Property** = `789 Pine St`:
+   - `789 Pine St – Unit 1A`
+   - `789 Pine St – Unit 1B`
+   - `789 Pine St – Unit 2A`
+   - `789 Pine St – Unit 2B`
+3. Set the **Rent** on each unit (they can be different amounts), save each one
 
 > **Tip:** Once set up, ask the Telegram bot: *"Show me the units at 789 Pine St"*
 > to confirm everything looks right.
@@ -219,17 +218,19 @@ the rent amount and payment terms.
 
    | Field | What to enter |
    |---|---|
-   | **Tenant** | Select the tenant's name (Customer record) |
-   | **Property** | Select the property |
-   | **Unit** | Select the specific unit |
+   | **Lease Customer** | Select the tenant's name (Customer record) |
+   | **Property** | Select the specific unit (the Property record) |
    | **Lease Start Date** | The day the lease begins (e.g. 2025-08-01) |
    | **Lease End Date** | The day the lease ends (e.g. 2026-07-31) |
-   | **Monthly Rent** | The agreed monthly rent amount |
    | **Security Deposit** | Security deposit amount |
-   | **Rent Due Day** | Day of month rent is due (e.g. 1 for the 1st) |
+   | **Notice Period** | Days of notice required to vacate (e.g. 30) |
    | **Grace Period (days)** | Days after due date before late fees start (e.g. 5) |
    | **Late Fee Type** | Percentage or Flat Amount |
    | **Late Fee Amount** | Daily late fee (e.g. $50 flat or 0.1% per day) |
+
+   **Monthly rent** is set in the **Lease Items** child table at the bottom of
+   the form — click **Add Row**, set Frequency = `Monthly` and Amount = the
+   monthly rent amount.
 
 5. **Save and Submit**
 
@@ -583,7 +584,7 @@ Every **Friday at 5:00 PM PST** you receive a comprehensive Telegram report:
 | What you want to do | How to do it |
 |---|---|
 | Add a new property | ERPNext → PropMS → Property → New |
-| Add units to a property | Open the Property record → Units table → Add Row |
+| Add units to a property | PropMS → Property → New → set Parent Property |
 | Add a new tenant | ERPNext → Selling → Customer → New (Group = "Tenant") |
 | Create a lease | ERPNext → PropMS → Lease → New → Submit |
 | Add a maintenance task | Tell the bot, or ERPNext → Helpdesk → New Ticket |
