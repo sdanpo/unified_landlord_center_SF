@@ -5,6 +5,30 @@ This guide covers everything you do day-to-day as the landlord: managing your
 portfolio through the Telegram bot, handling leases and late fees, assigning
 vendors, screening applicants, and reviewing automated alerts.
 
+You don't need to be technical to use this system. Most things happen through
+plain English messages to the Telegram bot, and the step-by-step instructions
+below will walk you through anything that requires logging into ERPNext.
+
+---
+
+## Table of Contents
+
+1. [Getting Started with the Telegram Bot](#1-getting-started-with-the-telegram-bot)
+2. [Adding a Property](#2-adding-a-property)
+3. [Adding a Multifamily Property with Multiple Units](#3-adding-a-multifamily-property-with-multiple-units)
+4. [Adding a Tenant](#4-adding-a-tenant)
+5. [Creating a Lease](#5-creating-a-lease)
+6. [Adding a Maintenance Task (Work Order)](#6-adding-a-maintenance-task-work-order)
+7. [Adding a Vendor](#7-adding-a-vendor)
+8. [Rent & Financials](#8-rent--financials)
+9. [Lease Renewals](#9-lease-renewals)
+10. [Late Fee Configuration](#10-late-fee-configuration)
+11. [Rental Applications & Tenant Screening](#11-rental-applications--tenant-screening)
+12. [Documents](#12-documents)
+13. [Automated Alerts Reference](#13-automated-alerts-reference)
+14. [Tenant Portal Administration](#14-tenant-portal-administration)
+15. [Weekly Portfolio Report](#15-weekly-portfolio-report)
+
 ---
 
 ## 1. Getting Started with the Telegram Bot
@@ -31,7 +55,307 @@ never need to log in to ERPNext for routine tasks.
 
 ---
 
-## 2. Rent & Financials
+## 2. Adding a Property
+
+A "property" is a building or address you own. If it has multiple rentable
+units (like a duplex or apartment building), see Section 3. If it is a
+single-family home you rent out as one unit, follow these steps.
+
+### Step-by-step: Add a single-family rental property
+
+1. **Log in to ERPNext**
+   - Open your browser and go to your ERPNext URL (e.g. `https://erp.yoursite.com`)
+   - Sign in with your ERPNext username and password
+
+2. **Open the Property module**
+   - From the main menu, click **PropMS** (or search "Property" in the search bar at the top)
+   - Click **Property**
+
+3. **Create a new Property record**
+   - Click the blue **New** button (top right)
+   - Fill in the following fields:
+
+   | Field | What to enter |
+   |---|---|
+   | **Property Name** | A short nickname, e.g. "123 Oak Street" |
+   | **Address Line 1** | Street address |
+   | **City** | City |
+   | **State** | State (e.g. CA) |
+   | **ZIP Code** | ZIP code |
+   | **Property Type** | Select "Residential" |
+   | **Number of Units** | Enter `1` for a single-family home |
+
+4. **Save**
+   - Click **Save** (top left or Ctrl+S)
+   - Your property is now in the system
+
+5. **Create a Unit for this property**
+   - Even for a single-family home, ERPNext needs a "Unit" record linked to the property
+   - In the same Property record, scroll down to the **Units** table
+   - Click **Add Row**
+   - Enter a unit name (e.g. "Main Unit" or just the address again)
+   - Save again
+
+> **Tip:** You can also ask the Telegram bot: *"Show me all my properties"* to
+> confirm it appears.
+
+---
+
+## 3. Adding a Multifamily Property with Multiple Units
+
+A multifamily property is a building with two or more rentable units — a
+duplex, triplex, apartment building, etc. You create **one** Property record
+and then add each unit inside it.
+
+### Step-by-step: Add a multifamily property
+
+1. **Log in to ERPNext** (see Section 2, Step 1)
+
+2. **Open PropMS → Property** and click **New**
+
+3. **Fill in the property details**
+
+   | Field | What to enter |
+   |---|---|
+   | **Property Name** | e.g. "456 Maple Ave" |
+   | **Address Line 1** | Street address of the building |
+   | **City / State / ZIP** | Building's location |
+   | **Property Type** | Select "Multi-Unit Residential" |
+   | **Number of Units** | Total number of units in the building (e.g. 8) |
+
+4. **Save the property** (click Save)
+
+5. **Add each unit**
+
+   In the **Units** table at the bottom of the Property record, add one row
+   per unit:
+
+   - Click **Add Row** for each unit
+   - Fill in:
+
+   | Field | What to enter |
+   |---|---|
+   | **Unit Name** | e.g. "Unit 1A", "Unit 2B", "Apt 301" |
+   | **Floor** | Floor number (optional) |
+   | **Bedrooms** | Number of bedrooms |
+   | **Bathrooms** | Number of bathrooms |
+   | **Square Footage** | Size in sq ft (optional but helpful) |
+   | **Market Rent** | The monthly rent you charge for this unit |
+
+   Repeat for every unit in the building.
+
+6. **Save the property record**
+
+   All units are now in the system and ready for tenants and leases.
+
+### Example: Setting up a 4-plex
+
+For a building at "789 Pine St" with units 1A, 1B, 2A, 2B:
+
+- Property Name: `789 Pine St`
+- Number of Units: `4`
+- Units table: add rows for `Unit 1A`, `Unit 1B`, `Unit 2A`, `Unit 2B`
+- Set the Market Rent for each unit (they can be different amounts)
+- Save
+
+> **Tip:** Once set up, ask the Telegram bot: *"Show me the units at 789 Pine St"*
+> to confirm everything looks right.
+
+---
+
+## 4. Adding a Tenant
+
+A tenant is someone currently renting one of your units. You add them as a
+**Customer** in ERPNext before you can create a lease.
+
+### Step-by-step: Add a new tenant
+
+1. **Log in to ERPNext**
+
+2. **Go to Selling → Customer** (or search "Customer" in the top search bar)
+
+3. **Click New**
+
+4. **Fill in the tenant's details**
+
+   | Field | What to enter |
+   |---|---|
+   | **Customer Name** | Full legal name (e.g. "Jane Smith") |
+   | **Customer Type** | Select "Individual" |
+   | **Customer Group** | Select "Tenant" |
+   | **Email Address** | Their email (used for portal login and e-signature) |
+   | **Mobile Number** | Their cell phone (used for SMS reminders) |
+
+5. **Save**
+
+6. **Set up their portal login**
+
+   After saving, run the following from your server terminal:
+   ```
+   npm run setup:portal
+   ```
+   This creates their online portal account so they can log in to pay rent,
+   view their lease, and submit maintenance requests.
+
+> **Note:** If you skip the portal setup step, the tenant won't be able to log
+> in. You only need to run the command once — it's safe to run multiple times.
+
+---
+
+## 5. Creating a Lease
+
+A lease connects a tenant to a specific unit for a period of time and sets
+the rent amount and payment terms.
+
+### Step-by-step: Create a lease
+
+1. **Log in to ERPNext**
+
+2. **Go to PropMS → Lease** (or search "Lease" in the search bar)
+
+3. **Click New**
+
+4. **Fill in the lease details**
+
+   | Field | What to enter |
+   |---|---|
+   | **Tenant** | Select the tenant's name (Customer record) |
+   | **Property** | Select the property |
+   | **Unit** | Select the specific unit |
+   | **Lease Start Date** | The day the lease begins (e.g. 2025-08-01) |
+   | **Lease End Date** | The day the lease ends (e.g. 2026-07-31) |
+   | **Monthly Rent** | The agreed monthly rent amount |
+   | **Security Deposit** | Security deposit amount |
+   | **Rent Due Day** | Day of month rent is due (e.g. 1 for the 1st) |
+   | **Grace Period (days)** | Days after due date before late fees start (e.g. 5) |
+   | **Late Fee Type** | Percentage or Flat Amount |
+   | **Late Fee Amount** | Daily late fee (e.g. $50 flat or 0.1% per day) |
+
+5. **Save and Submit**
+
+   - Click **Save** first, then click **Submit** to activate the lease
+   - Submitted leases trigger the automated rent invoice schedule and renewal
+     reminders
+
+6. **Send the lease for e-signature (optional)**
+
+   Once the lease is submitted, send it to the tenant for signing:
+   ```
+   Tell Telegram bot: "Send lease to Jane Smith"
+   ```
+   Both you and the tenant receive a signing link by email. The signed PDF is
+   automatically saved to the lease record when both parties sign.
+
+> **Important:** Always click **Submit** (not just Save). A saved-but-not-submitted
+> lease is a draft and won't generate invoices or trigger reminders.
+
+---
+
+## 6. Adding a Maintenance Task (Work Order)
+
+Maintenance tasks (called "HD Tickets" in ERPNext) track repairs, inspections,
+and any work that needs doing at a property.
+
+### Option A — Tenant submits it themselves (easiest)
+
+Tenants can submit maintenance requests directly from their portal at
+`{your-erpnext-url}/helpdesk`. You receive an instant Telegram notification
+when they do.
+
+### Option B — You add it yourself
+
+1. **Log in to ERPNext**
+
+2. **Go to Helpdesk → New Ticket** (or search "HD Ticket")
+
+3. **Fill in the details**
+
+   | Field | What to enter |
+   |---|---|
+   | **Subject** | Short description, e.g. "Leaking faucet in kitchen" |
+   | **Customer** | Select the tenant's name (or leave blank if unit is vacant) |
+   | **Property / Unit** | Select which property and unit |
+   | **Priority** | Low / Medium / High / Urgent |
+   | **Description** | Full details of the issue |
+   | **Status** | Leave as "Open" |
+
+4. **Save**
+
+### Option C — Ask the Telegram bot
+
+```
+"Create a maintenance ticket for Unit 2B — the kitchen faucet is leaking"
+"Log a work order: broken window at 789 Pine St Unit 1A, high priority"
+```
+
+### Assigning a vendor to a maintenance task
+
+Once a ticket exists, assign a vendor from Telegram:
+
+```
+"Assign Mike's Plumbing to HD-0023"
+"Who are our plumbers?" (to find a vendor first)
+"Assign ABC Plumbing to the leaking faucet ticket in Unit 2B"
+```
+
+The vendor automatically receives an SMS with the job details.
+
+### Checking open maintenance tasks
+
+```
+"What maintenance requests are open?"
+"Show me all work orders"
+"What's the status of the HVAC repair in Unit 4B?"
+```
+
+> **Reminder:** Tickets open longer than 48 hours will trigger an automatic
+> Telegram alert at 9:00 AM daily so nothing falls through the cracks.
+
+---
+
+## 7. Adding a Vendor
+
+Vendors are contractors, plumbers, electricians, and other service providers
+you work with. Add them once and you can assign them to maintenance tasks
+instantly.
+
+### Step-by-step: Add a vendor
+
+1. **Log in to ERPNext**
+
+2. **Go to Buying → Supplier** (or search "Supplier" in the search bar)
+
+3. **Click New**
+
+4. **Fill in the vendor's details**
+
+   | Field | What to enter |
+   |---|---|
+   | **Supplier Name** | Company or person name (e.g. "Mike's Plumbing") |
+   | **Supplier Group** | Select "Services" |
+   | **Contact Name** | Primary contact's name |
+   | **Mobile Number** | Phone number for SMS work order notifications |
+   | **Email Address** | Email address |
+   | **Trade / Specialty** | Select the trade: Plumbing, Electrical, HVAC, Painting, Carpentry, Landscaping, Pest Control, or General |
+   | **CA License #** | Their contractor license number (optional but recommended) |
+   | **Rating** | Your 1–5 star rating of their work |
+
+5. **Save**
+
+The vendor is now in your directory and can be assigned to maintenance tickets
+via the Telegram bot.
+
+### Viewing your vendor list
+
+```
+"Show me all vendors"
+"Who are our plumbers?"
+"List all electricians"
+```
+
+---
+
+## 8. Rent & Financials
 
 ### Checking who owes rent
 
@@ -51,7 +375,7 @@ owed, and how many days overdue.
 - You receive a Telegram summary of all outstanding balances
 
 **Late fees** — if a lease has a grace period and late fee configured (see
-section 5), the system charges late fees automatically every day after the
+Section 10), the system charges late fees automatically every day after the
 grace period expires. You get a daily Telegram summary of all fees applied.
 
 ### Viewing a payment when it comes in
@@ -69,7 +393,7 @@ notification:
 
 ---
 
-## 3. Lease Renewals
+## 9. Lease Renewals
 
 ### Automated renewal notices
 
@@ -118,61 +442,7 @@ The bot will:
 
 ---
 
-## 4. Maintenance & Work Orders
-
-### Viewing open tickets
-
-```
-"What maintenance requests are open?"
-"Show me all work orders"
-"What's the status of the HVAC repair in Unit 4B?"
-```
-
-Tickets older than 48 hours trigger an automatic Telegram alert at 9:00 AM
-daily.
-
-### Finding a vendor
-
-```
-"Who are our plumbers?"
-"Show me all vendors"
-"List electricians"
-```
-
-Returns a list of vendors from your directory with their trade, rating, and
-contact number.
-
-Supported trade categories: Plumbing, Electrical, HVAC, Painting, Carpentry,
-Landscaping, Pest Control, General.
-
-### Assigning a vendor to a ticket
-
-```
-"Assign Mike's Plumbing to HD-0023"
-"Assign ABC Electrical to the ticket in Unit 2B"
-```
-
-The bot will:
-1. Update the work order (HD Ticket) with the assigned vendor
-2. Send an SMS to the vendor's mobile number with the job details:
-   ```
-   New work order: Leaking faucet at 123 Main St, Unit 2B.
-   Tenant: Jane Smith (415-555-0101). Ticket: HD-0023.
-   Reply to confirm.
-   ```
-
-### Adding vendors
-
-Add vendors directly in ERPNext under **Buying → Supplier**. Fill in the
-custom fields:
-- **Trade / Specialty** — select the trade category
-- **CA License #** — contractor license number
-- **Rating** — your 1–5 star rating
-- **SMS / Mobile #** — the number that receives work order SMS messages
-
----
-
-## 5. Late Fee Configuration
+## 10. Late Fee Configuration
 
 Late fees are configured per lease in ERPNext under the lease record. Set:
 
@@ -200,7 +470,7 @@ automatically to the ledger.
 
 ---
 
-## 6. Rental Applications & Tenant Screening
+## 11. Rental Applications & Tenant Screening
 
 ### When someone applies
 
@@ -244,7 +514,7 @@ Returns the Lead pipeline showing where each applicant is:
 
 ---
 
-## 7. Documents
+## 12. Documents
 
 All signed leases and documents attached to a lease record in ERPNext are
 automatically available to tenants at their portal `/my-docs` page. You can
@@ -258,7 +528,7 @@ It will appear in the tenant's document portal immediately.
 
 ---
 
-## 8. Automated Alerts Reference
+## 13. Automated Alerts Reference
 
 You receive the following Telegram messages automatically without any action:
 
@@ -276,7 +546,7 @@ You receive the following Telegram messages automatically without any action:
 
 ---
 
-## 9. Tenant Portal Administration
+## 14. Tenant Portal Administration
 
 Tenants log in at `{your-erpnext-url}/login`. Their portal shows:
 
@@ -297,7 +567,7 @@ To add a new tenant to the portal:
 
 ---
 
-## 10. Weekly Portfolio Report
+## 15. Weekly Portfolio Report
 
 Every **Friday at 5:00 PM PST** you receive a comprehensive Telegram report:
 - Outstanding rent balances
@@ -305,3 +575,23 @@ Every **Friday at 5:00 PM PST** you receive a comprehensive Telegram report:
 - Open work orders by status
 - Leases expiring in the next 90 days
 - Late fee totals for the week
+
+---
+
+## Quick Reference: Common Tasks
+
+| What you want to do | How to do it |
+|---|---|
+| Add a new property | ERPNext → PropMS → Property → New |
+| Add units to a property | Open the Property record → Units table → Add Row |
+| Add a new tenant | ERPNext → Selling → Customer → New (Group = "Tenant") |
+| Create a lease | ERPNext → PropMS → Lease → New → Submit |
+| Add a maintenance task | Tell the bot, or ERPNext → Helpdesk → New Ticket |
+| Add a vendor | ERPNext → Buying → Supplier → New |
+| Assign vendor to a task | Tell bot: "Assign [vendor] to [ticket number]" |
+| Check who owes rent | Tell bot: "Who owes rent?" |
+| Send lease for signing | Tell bot: "Send lease to [tenant name]" |
+| Screen an applicant | Tell bot: "Screen [applicant name]" |
+| Check open maintenance | Tell bot: "What maintenance is open?" |
+| See all my properties | Tell bot: "Show me all my properties" |
+| Get rent summary | Tell bot: "Give me a financial summary" |
